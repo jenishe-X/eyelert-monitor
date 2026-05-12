@@ -60,7 +60,7 @@ export class DrowsinessAlgorithm {
       } else {
         const closedDuration = timestamp - this.eyesClosedStartTime;
         if (closedDuration >= 2000) { // 2 seconds continuous closure
-          return { state: DrowsinessState.ALARM, perclos: currentPerclos }; 
+          return { state: DrowsinessState.ALARM, perclos: currentPerclos, yawns: this.yawnsInCurrentCycle }; 
         }
       }
     } else {
@@ -149,7 +149,7 @@ export class DrowsinessAlgorithm {
           state = DrowsinessState.A_LITTLE_DROWSY;
         }
         // PERCLOS > 30% indicates severe drowsiness
-        if (currentPerclos >= 0.30 && state !== DrowsinessState.ALARM) {
+        if (currentPerclos >= 0.30) {
           state = DrowsinessState.DROWSY;
         }
       }

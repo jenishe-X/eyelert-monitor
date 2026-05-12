@@ -7,6 +7,8 @@ import { FaceEnrollmentScreen } from './src/screens/FaceEnrollmentScreen';
 import { AlertModal } from './src/screens/AlertModal';
 import { EnrollmentResult } from './src/screens/EnrollmentResult';
 import { TestingScreen } from './src/screens/Testing';
+import { SimulateScreen } from './src/screens/Simulate';
+import { DeviceCamScreen } from './src/screens/DeviceCam';
 import { colors } from './src/theme/colors';
 
 const Stack = createNativeStackNavigator();
@@ -48,6 +50,16 @@ function App(): React.JSX.Element {
           name="Testing" 
           component={TestingScreen}
           options={{ headerShown: false }}
+        />
+        <Stack.Screen 
+          name="Simulate" 
+          component={SimulateScreen}
+          options={{ title: 'Simulate' }}
+        />
+        <Stack.Screen 
+          name="DeviceCam" 
+          component={DeviceCamScreen}
+          options={{ title: 'Device Camera', headerShown: false }}
         />
         <Stack.Screen 
           name="AlertModal" 

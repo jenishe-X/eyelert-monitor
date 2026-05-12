@@ -64,6 +64,13 @@ export const DashboardScreen = ({ navigation }: any) => {
 
         <TouchableOpacity 
           style={styles.actionButton}
+          onPress={() => navigation.navigate('Simulate')}
+        >
+          <Text style={styles.actionButtonText}>Simulate</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.actionButton}
           onPress={() => navigation.navigate('Settings')}
         >
           <Text style={styles.actionButtonText}>Settings</Text>
