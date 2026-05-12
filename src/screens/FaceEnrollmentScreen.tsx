@@ -92,9 +92,27 @@ export const FaceEnrollmentScreen = ({ _navigation }: any) => {
       const rightEyeBox = getBoundingBox(landmarks, RIGHT_EYE_INDICES);
       const mouthBox = getBoundingBox(landmarks, MOUTH_INDICES);
 
-      // Convert normalized coordinates to screen coordinates
-      const toScreenX = (x: number) => (isMirrored ? (1 - x) : x) * cameraViewSize.width;
-      const toScreenY = (y: number) => y * cameraViewSize.height;
+      // Convert normalized coordinates to screen coordinates, accounting for resizeMode="cover"
+      const vw = SCREEN_WIDTH;
+      const vh = SCREEN_HEIGHT;
+      const fw = cameraViewSize.width;
+      const fh = cameraViewSize.height;
+      
+      const s = Math.max(vw / fw, vh / fh);
+      const sw = fw * s;
+      const sh = fh * s;
+      const ox = (vw - sw) / 2;
+      const oy = (vh - sh) / 2;
+
+      const toScreenX = (x: number) => {
+        const nx = isMirrored ? (1 - x) : x;
+        return ox + nx * sw;
+      };
+      
+      const toScreenY = (y: number) => {
+        const ny = 1 - y; // Mediapipe frame is upside down on this device
+        return oy + ny * sh;
+      };
 
       const renderBox = (box: any, color: string) => {
         if (!box) return null;
@@ -105,11 +123,18 @@ export const FaceEnrollmentScreen = ({ _navigation }: any) => {
           x1 = x2;
           x2 = temp;
         }
-        const y = toScreenY(box.minY);
+        let y1 = toScreenY(box.minY);
+        let y2 = toScreenY(box.maxY);
+        if (y1 > y2) {
+          const temp = y1;
+          y1 = y2;
+          y2 = temp;
+        }
         const width = x2 - x1;
-        const height = toScreenY(box.maxY - box.minY);
+        const height = y2 - y1;
         
         const x = x1;
+        const y = y1;
         // Draw square and crosshair lines
         return (
           <G key={`${color}-${x}-${y}`}>
