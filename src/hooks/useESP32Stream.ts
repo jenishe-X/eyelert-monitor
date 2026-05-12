@@ -44,7 +44,7 @@ export const useESP32Stream = (url: string) => {
       };
 
       wsRef.current.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        console.warn('WebSocket error:', error);
         wsRef.current?.close();
       };
     };

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Dimensions } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Camera, useCameraDevice } from 'react-native-vision-camera';
 import { 
   useFaceLandmarkDetection,
@@ -398,6 +399,8 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
     }
 
     if (currentStep === EnrollmentStep.COMPLETED) {
+      AsyncStorage.setItem('enrollment_data', JSON.stringify(enrollmentData))
+        .catch(e => console.error("Failed to save enrollment data", e));
       navigation.replace('EnrollmentResult', { data: enrollmentData });
       return;
     }

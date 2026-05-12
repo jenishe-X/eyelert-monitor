@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { faceLandmarkDetectionOnImage } from 'react-native-mediapipe';
 import RNFS from 'react-native-fs';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const useDrowsinessDetection = () => {
   const [ear, setEar] = useState<number>(0);
@@ -8,6 +9,24 @@ export const useDrowsinessDetection = () => {
   const [perclos, setPerclos] = useState<number>(0);
   const [isDrowsy, setIsDrowsy] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const lastSaveTime = useRef<number>(0);
+
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const stats = await AsyncStorage.getItem('drowsiness_stats');
+        if (stats) {
+          const { ear: savedEar, mar: savedMar, perclos: savedPerclos } = JSON.parse(stats);
+          setEar(savedEar || 0);
+          setMar(savedMar || 0);
+          setPerclos(savedPerclos || 0);
+        }
+      } catch (e) {
+        console.error('Failed to load stats', e);
+      }
+    };
+    loadStats();
+  }, []);
 
   // Constants for calculations
   const EAR_THRESHOLD = 0.25;
@@ -78,6 +97,17 @@ export const useDrowsinessDetection = () => {
           setIsDrowsy(true);
         } else {
           setIsDrowsy(false);
+        }
+
+        // Save stats periodically (every 1 second) to avoid performance issues
+        const now = Date.now();
+        if (now - lastSaveTime.current > 1000) {
+          AsyncStorage.setItem('drowsiness_stats', JSON.stringify({ 
+            ear: Number(avgEAR.toFixed(2)), 
+            mar: Number(currentMAR.toFixed(2)), 
+            perclos: Number(currentPerclos.toFixed(2)) 
+          })).catch(e => console.error('Failed to save stats', e));
+          lastSaveTime.current = now;
         }
       }
     } catch (error) {
