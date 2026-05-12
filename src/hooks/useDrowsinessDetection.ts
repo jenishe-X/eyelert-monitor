@@ -12,6 +12,7 @@ export const useDrowsinessDetection = () => {
   const [isDrowsy, setIsDrowsy] = useState<boolean>(false);
   const [drowsinessState, setDrowsinessState] = useState<DrowsinessState>(DrowsinessState.AWAKE);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [landmarks, setLandmarks] = useState<any[]>([]);
   
   const lastSaveTime = useRef<number>(0);
   const algorithmRef = useRef<DrowsinessAlgorithm>(new DrowsinessAlgorithm());
@@ -86,6 +87,7 @@ export const useDrowsinessDetection = () => {
         setPerclos(Number(currentPerclos.toFixed(2)));
         setYawns(yawns);
         setDrowsinessState(state);
+        setLandmarks(landmarks);
         
         // Map DrowsinessState to the boolean isDrowsy for backward compatibility with UI
         // We trigger modal for ALARM or DROWSY. A_LITTLE_DROWSY could also trigger it depending on requirements.
@@ -120,6 +122,7 @@ export const useDrowsinessDetection = () => {
     perclos,
     yawns,
     isDrowsy,
-    drowsinessState
+    drowsinessState,
+    landmarks
   };
 };

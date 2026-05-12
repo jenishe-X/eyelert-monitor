@@ -40,8 +40,32 @@ export const SimulateScreen = ({ navigation }: any) => {
     }
   };
 
-  const checkConnection = () => {
+  const checkConnection = async () => {
     setIsChecking(true);
+
+    let isResolved = false;
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        if (!isResolved) reject(new Error('Timeout'));
+      }, 5000);
+    });
+
+    try {
+      // Try an HTTP fetch first to see if the device is reachable
+      // Many ESP32 websocket servers will respond with a 400 or 426 to a normal HTTP GET,
+      // which means the fetch promise will resolve successfully, indicating the device is connected.
+      const fetchPromise = fetch(`http://${esp32Ip}`);
+      await Promise.race([fetchPromise, timeoutPromise]);
+      isResolved = true;
+      setIsEyelertWifiConnected(true);
+      setIsChecking(false);
+      return;
+    } catch (e) {
+      isResolved = true;
+      console.log("HTTP check failed, falling back to WS", e);
+    }
+    
+    // Fallback to checking the WebSocket directly
     const ws = new WebSocket(`ws://${esp32Ip}/stream`);
     
     const timeout = setTimeout(() => {
@@ -50,7 +74,7 @@ export const SimulateScreen = ({ navigation }: any) => {
         setIsEyelertWifiConnected(false);
         setIsChecking(false);
       }
-    }, 3000);
+    }, 5000);
 
     ws.onopen = () => {
       clearTimeout(timeout);
