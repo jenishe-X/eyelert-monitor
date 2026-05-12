@@ -5,6 +5,7 @@ import { DashboardScreen } from './src/screens/DashboardScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { FaceEnrollmentScreen } from './src/screens/FaceEnrollmentScreen';
 import { AlertModal } from './src/screens/AlertModal';
+import { EnrollmentResult } from './src/screens/EnrollmentResult';
 import { colors } from './src/theme/colors';
 
 const Stack = createNativeStackNavigator();
@@ -36,6 +37,11 @@ function App(): React.JSX.Element {
           name="FaceEnrollment" 
           component={FaceEnrollmentScreen}
           options={{ title: 'Face Enrollment' }}
+        />
+        <Stack.Screen 
+          name="EnrollmentResult" 
+          component={EnrollmentResult}
+          options={{ title: 'Enrollment Results' }}
         />
         <Stack.Screen 
           name="AlertModal" 

@@ -387,7 +387,7 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
     }
 
     if (currentStep === EnrollmentStep.COMPLETED) {
-      navigation.goBack();
+      navigation.replace('EnrollmentResult', { data: enrollmentData });
       return;
     }
 
