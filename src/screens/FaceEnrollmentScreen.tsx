@@ -159,6 +159,7 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
   const stepDataRef = useRef<number[]>([]);
   const stepTimerRef = useRef<NodeJS.Timeout | null>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastUpdateRef = useRef<number>(0);
 
   useEffect(() => {
     (async () => {
@@ -170,16 +171,7 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
   const faceDetectionSolution = useFaceLandmarkDetection(
     (result: FaceLandmarkDetectionResultBundle, viewSize: any, mirrored: boolean) => {
       if (result && result.results && result.results.length > 0 && result.results[0].faceLandmarks.length > 0) {
-        setIsFaceInFrame(true);
         const currentLandmarks = result.results[0].faceLandmarks[0];
-        setLandmarks(currentLandmarks);
-        setIsMirrored(mirrored);
-        if (viewSize && viewSize.width && viewSize.height) {
-          setCameraViewSize(viewSize);
-        }
-        if (result.inputImageWidth && result.inputImageHeight) {
-          setFrameSize({ width: result.inputImageWidth, height: result.inputImageHeight });
-        }
 
         // Collect data if recording
         if (isRecordingRef.current && currentStepRef.current !== EnrollmentStep.SETUP && currentStepRef.current !== EnrollmentStep.COMPLETED) {
@@ -201,9 +193,27 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
             stepDataRef.current.push(mar);
           }
         }
+
+        const now = Date.now();
+        if (now - lastUpdateRef.current > 40) {
+          setIsFaceInFrame(true);
+          setLandmarks(currentLandmarks);
+          setIsMirrored(mirrored);
+          if (viewSize && viewSize.width && viewSize.height) {
+            setCameraViewSize(viewSize);
+          }
+          if (result.inputImageWidth && result.inputImageHeight) {
+            setFrameSize({ width: result.inputImageWidth, height: result.inputImageHeight });
+          }
+          lastUpdateRef.current = now;
+        }
       } else {
-        setIsFaceInFrame(false);
-        setLandmarks([]);
+        const now = Date.now();
+        if (now - lastUpdateRef.current > 40) {
+          setIsFaceInFrame(false);
+          setLandmarks([]);
+          lastUpdateRef.current = now;
+        }
       }
     },
     (error: any) => {
