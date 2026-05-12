@@ -27,6 +27,40 @@ const LEFT_EYE_INDICES = [33, 133, 159, 145, 153, 144, 163, 7, 161, 246, 160, 15
 const RIGHT_EYE_INDICES = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398];
 const MOUTH_INDICES = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
 
+const calculateDistance = (p1: any, p2: any) => {
+  return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+};
+
+const computeEAR = (landmarks: any[], indices: number[]) => {
+  const p1 = landmarks[indices[0]];
+  const p2 = landmarks[indices[1]];
+  const p3 = landmarks[indices[2]];
+  const p4 = landmarks[indices[3]];
+  const p5 = landmarks[indices[4]];
+  const p6 = landmarks[indices[5]];
+
+  const v1 = calculateDistance(p2, p6);
+  const v2 = calculateDistance(p3, p5);
+  const h = calculateDistance(p1, p4);
+
+  return (v1 + v2) / (2.0 * h);
+};
+
+const computeMAR = (landmarks: any[], indices: number[]) => {
+  const p1 = landmarks[indices[0]];
+  const p2 = landmarks[indices[1]];
+  const p3 = landmarks[indices[2]];
+  const p4 = landmarks[indices[3]];
+  const p5 = landmarks[indices[4]];
+  const p6 = landmarks[indices[5]];
+
+  const v1 = calculateDistance(p2, p6);
+  const v2 = calculateDistance(p3, p5);
+  const h = calculateDistance(p1, p4);
+
+  return (v1 + v2) / (2.0 * h);
+};
+
 export const FaceEnrollmentScreen = ({ _navigation }: any) => {
   const device = useCameraDevice('front');
   const camera = useRef<Camera>(null);
@@ -35,6 +69,7 @@ export const FaceEnrollmentScreen = ({ _navigation }: any) => {
   const [isFaceInFrame, setIsFaceInFrame] = useState(false);
   const [landmarks, setLandmarks] = useState<any[]>([]);
   const [cameraViewSize, setCameraViewSize] = useState({ width: SCREEN_WIDTH, height: SCREEN_HEIGHT });
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
 
   const [isMirrored, setIsMirrored] = useState(false);
 
@@ -53,6 +88,9 @@ export const FaceEnrollmentScreen = ({ _navigation }: any) => {
         setIsMirrored(mirrored);
         if (viewSize && viewSize.width && viewSize.height) {
           setCameraViewSize(viewSize);
+        }
+        if (result.inputImageWidth && result.inputImageHeight) {
+          setFrameSize({ width: result.inputImageWidth, height: result.inputImageHeight });
         }
       } else {
         setIsFaceInFrame(false);
@@ -93,10 +131,10 @@ export const FaceEnrollmentScreen = ({ _navigation }: any) => {
       const mouthBox = getBoundingBox(landmarks, MOUTH_INDICES);
 
       // Convert normalized coordinates to screen coordinates, accounting for resizeMode="cover"
-      const vw = SCREEN_WIDTH;
-      const vh = SCREEN_HEIGHT;
-      const fw = cameraViewSize.width;
-      const fh = cameraViewSize.height;
+      const vw = cameraViewSize.width;
+      const vh = cameraViewSize.height;
+      const fw = frameSize.width || cameraViewSize.width;
+      const fh = frameSize.height || cameraViewSize.height;
       
       const s = Math.max(vw / fw, vh / fh);
       const sw = fw * s;
@@ -105,7 +143,7 @@ export const FaceEnrollmentScreen = ({ _navigation }: any) => {
       const oy = (vh - sh) / 2;
 
       const toScreenX = (x: number) => {
-        const nx = isMirrored ? (1 - x) : x;
+        const nx = x;
         return ox + nx * sw;
       };
       
@@ -199,7 +237,20 @@ export const FaceEnrollmentScreen = ({ _navigation }: any) => {
       const result = await faceLandmarkDetectionOnImage(photo.path, 'face_landmarker.task');
 
       if (result && result.results && result.results.length > 0 && result.results[0].faceLandmarks.length > 0) {
-        Alert.alert('Success', 'Face detected and enrolled successfully!');
+        const faceLandmarks = result.results[0].faceLandmarks[0];
+
+        // Compute EAR
+        const leftEAR = computeEAR(faceLandmarks, [33, 160, 158, 133, 153, 144]);
+        const rightEAR = computeEAR(faceLandmarks, [362, 385, 387, 263, 373, 380]);
+        const averageEAR = (leftEAR + rightEAR) / 2.0;
+
+        // Compute MAR
+        const mar = computeMAR(faceLandmarks, [78, 82, 312, 308, 317, 87]);
+
+        Alert.alert(
+          'Success', 
+          `Face detected!\nEAR: ${averageEAR.toFixed(3)}\nMAR: ${mar.toFixed(3)}`
+        );
         // Here you would typically save the face embeddings or landmarks
       } else {
         Alert.alert('Error', 'No face detected. Please try again.');
