@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Dimensions } from 'react-native';
 import { Camera, useCameraDevice } from 'react-native-vision-camera';
 import { 
@@ -130,16 +130,124 @@ const computeMAR = (landmarks: any[], indices: number[]) => {
   return (v1 + v2) / (2.0 * h);
 };
 
+const getBoundingBox = (points: any[], indices: number[]) => {
+  if (!points || points.length === 0) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  indices.forEach(idx => {
+    const lm = points[idx];
+    if (lm) {
+      if (lm.x < minX) minX = lm.x;
+      if (lm.y < minY) minY = lm.y;
+      if (lm.x > maxX) maxX = lm.x;
+      if (lm.y > maxY) maxY = lm.y;
+    }
+  });
+  if (minX === Infinity) return null;
+  return { minX, minY, maxX, maxY };
+};
+
+// Isolated component to prevent full screen re-renders
+const LandmarksOverlay = memo(({ landmarksUpdateRef }: { landmarksUpdateRef: React.MutableRefObject<any> }) => {
+  const [data, setData] = useState<any>(null);
+
+  useEffect(() => {
+    landmarksUpdateRef.current = (landmarks: any[], cameraViewSize: any, frameSize: any) => {
+      setData({ landmarks, cameraViewSize, frameSize });
+    };
+    return () => {
+      landmarksUpdateRef.current = null;
+    };
+  }, [landmarksUpdateRef]);
+
+  if (!data || !data.landmarks || data.landmarks.length === 0) return null;
+
+  try {
+    const { landmarks, cameraViewSize, frameSize } = data;
+    const leftEyeBox = getBoundingBox(landmarks, LEFT_EYE_INDICES);
+    const rightEyeBox = getBoundingBox(landmarks, RIGHT_EYE_INDICES);
+    const mouthBox = getBoundingBox(landmarks, MOUTH_INDICES);
+
+    const vw = cameraViewSize?.width || SCREEN_WIDTH;
+    const vh = cameraViewSize?.height || SCREEN_HEIGHT;
+    const fw = frameSize?.width || vw;
+    const fh = frameSize?.height || vh;
+    
+    const s = Math.max(vw / fw, vh / fh);
+    const sw = fw * s;
+    const sh = fh * s;
+    const ox = (vw - sw) / 2;
+    const oy = (vh - sh) / 2;
+
+    const toScreenX = (x: number) => ox + x * sw;
+    const toScreenY = (y: number) => oy + (1 - y) * sh;
+
+    const renderBox = (box: any, color: string) => {
+      if (!box) return null;
+      let x1 = toScreenX(box.minX);
+      let x2 = toScreenX(box.maxX);
+      if (x1 > x2) {
+        const temp = x1;
+        x1 = x2;
+        x2 = temp;
+      }
+      let y1 = toScreenY(box.minY);
+      let y2 = toScreenY(box.maxY);
+      if (y1 > y2) {
+        const temp = y1;
+        y1 = y2;
+        y2 = temp;
+      }
+      const width = x2 - x1;
+      const height = y2 - y1;
+      const x = x1;
+      const y = y1;
+      
+      return (
+        <G key={`${color}-${x}-${y}`}>
+          <Rect x={x} y={y} width={width} height={height} stroke={color} strokeWidth="2" fill="none" />
+          <Line x1={x} y1={y + height/2} x2={x + width} y2={y + height/2} stroke={color} strokeWidth="1" />
+          <Line x1={x + width/2} y1={y} x2={x + width/2} y2={y + height} stroke={color} strokeWidth="1" />
+        </G>
+      );
+    };
+
+    const renderKeyPoint = (index: number, color: string) => {
+      const lm = landmarks[index];
+      if (!lm) return null;
+      return (
+        <Circle 
+          key={`point-${index}`}
+          cx={toScreenX(lm.x)} 
+          cy={toScreenY(lm.y)} 
+          r="4" 
+          fill={color} 
+        />
+      );
+    };
+
+    return (
+      <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
+        {renderBox(leftEyeBox, '#4ade80')}
+        {renderBox(rightEyeBox, '#4ade80')}
+        {renderBox(mouthBox, '#60a5fa')}
+        {renderKeyPoint(KEY_LANDMARKS.leftEye, '#f87171')}
+        {renderKeyPoint(KEY_LANDMARKS.rightEye, '#f87171')}
+        {renderKeyPoint(KEY_LANDMARKS.noseTip, '#fbbf24')}
+        {renderKeyPoint(KEY_LANDMARKS.mouthCenter, '#fbbf24')}
+        {renderKeyPoint(KEY_LANDMARKS.leftTragion, '#c084fc')}
+        {renderKeyPoint(KEY_LANDMARKS.rightTragion, '#c084fc')}
+      </Svg>
+    );
+  } catch (error) {
+    return null;
+  }
+});
+
 export const FaceEnrollmentScreen = ({ navigation }: any) => {
   const device = useCameraDevice('front');
   const camera = useRef<Camera>(null);
   const [hasPermission, setHasPermission] = useState(false);
   const [isFaceInFrame, setIsFaceInFrame] = useState(false);
-  const [landmarks, setLandmarks] = useState<any[]>([]);
-  const [cameraViewSize, setCameraViewSize] = useState({ width: SCREEN_WIDTH, height: SCREEN_HEIGHT });
-  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
-
-  const [isMirrored, setIsMirrored] = useState(false);
 
   // Enrollment State
   const [currentStep, setCurrentStep] = useState<EnrollmentStep>(EnrollmentStep.SETUP);
@@ -153,13 +261,14 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
     yawnMAR: 0,
   });
 
-  // Refs for data collection during stream
+  // Refs for data collection and overlay updates
+  const isFaceInFrameRef = useRef(false);
+  const landmarksUpdateRef = useRef<any>(null);
   const currentStepRef = useRef<EnrollmentStep>(EnrollmentStep.SETUP);
   const isRecordingRef = useRef<boolean>(false);
   const stepDataRef = useRef<number[]>([]);
   const stepTimerRef = useRef<NodeJS.Timeout | null>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const lastUpdateRef = useRef<number>(0);
 
   useEffect(() => {
     (async () => {
@@ -172,6 +281,12 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
     (result: FaceLandmarkDetectionResultBundle, viewSize: any, mirrored: boolean) => {
       if (result && result.results && result.results.length > 0 && result.results[0].faceLandmarks.length > 0) {
         const currentLandmarks = result.results[0].faceLandmarks[0];
+
+        // Update isFaceInFrame only when it changes
+        if (!isFaceInFrameRef.current) {
+          isFaceInFrameRef.current = true;
+          setIsFaceInFrame(true);
+        }
 
         // Collect data if recording
         if (isRecordingRef.current && currentStepRef.current !== EnrollmentStep.SETUP && currentStepRef.current !== EnrollmentStep.COMPLETED) {
@@ -194,153 +309,34 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
           }
         }
 
-        const now = Date.now();
-        if (now - lastUpdateRef.current > 40) {
-          setIsFaceInFrame(true);
-          setLandmarks(currentLandmarks);
-          setIsMirrored(mirrored);
-          if (viewSize && viewSize.width && viewSize.height) {
-            setCameraViewSize(viewSize);
-          }
-          if (result.inputImageWidth && result.inputImageHeight) {
-            setFrameSize({ width: result.inputImageWidth, height: result.inputImageHeight });
-          }
-          lastUpdateRef.current = now;
+        // Send data directly to the isolated overlay component (no throttling, real-time)
+        if (landmarksUpdateRef.current) {
+          const frameSize = result.inputImageWidth && result.inputImageHeight 
+            ? { width: result.inputImageWidth, height: result.inputImageHeight } 
+            : null;
+          landmarksUpdateRef.current(currentLandmarks, viewSize, frameSize);
         }
       } else {
-        const now = Date.now();
-        if (now - lastUpdateRef.current > 40) {
+        if (isFaceInFrameRef.current) {
+          isFaceInFrameRef.current = false;
           setIsFaceInFrame(false);
-          setLandmarks([]);
-          lastUpdateRef.current = now;
+          if (landmarksUpdateRef.current) {
+            landmarksUpdateRef.current([], null, null);
+          }
         }
       }
     },
     (error: any) => {
       console.log('Face detection error:', error);
-      setIsFaceInFrame(false);
+      if (isFaceInFrameRef.current) {
+        isFaceInFrameRef.current = false;
+        setIsFaceInFrame(false);
+      }
       Alert.alert('Face Detection Error', error?.message || String(error));
     },
     RunningMode.LIVE_STREAM,
     'face_landmarker.task'
   );
-
-  const getBoundingBox = (points: any[], indices: number[]) => {
-    if (!points || points.length === 0) return null;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    indices.forEach(idx => {
-      const lm = points[idx];
-      if (lm) {
-        if (lm.x < minX) minX = lm.x;
-        if (lm.y < minY) minY = lm.y;
-        if (lm.x > maxX) maxX = lm.x;
-        if (lm.y > maxY) maxY = lm.y;
-      }
-    });
-    if (minX === Infinity) return null;
-    return { minX, minY, maxX, maxY };
-  };
-
-  const renderLandmarks = () => {
-    try {
-      if (!landmarks || landmarks.length === 0) return null;
-
-      const leftEyeBox = getBoundingBox(landmarks, LEFT_EYE_INDICES);
-      const rightEyeBox = getBoundingBox(landmarks, RIGHT_EYE_INDICES);
-      const mouthBox = getBoundingBox(landmarks, MOUTH_INDICES);
-
-      // Convert normalized coordinates to screen coordinates, accounting for resizeMode="cover"
-      const vw = cameraViewSize.width;
-      const vh = cameraViewSize.height;
-      const fw = frameSize.width || cameraViewSize.width;
-      const fh = frameSize.height || cameraViewSize.height;
-      
-      const s = Math.max(vw / fw, vh / fh);
-      const sw = fw * s;
-      const sh = fh * s;
-      const ox = (vw - sw) / 2;
-      const oy = (vh - sh) / 2;
-
-      const toScreenX = (x: number) => {
-        const nx = x;
-        return ox + nx * sw;
-      };
-      
-      const toScreenY = (y: number) => {
-        const ny = 1 - y; // Mediapipe frame is upside down on this device
-        return oy + ny * sh;
-      };
-
-      const renderBox = (box: any, color: string) => {
-        if (!box) return null;
-        let x1 = toScreenX(box.minX);
-        let x2 = toScreenX(box.maxX);
-        if (x1 > x2) {
-          const temp = x1;
-          x1 = x2;
-          x2 = temp;
-        }
-        let y1 = toScreenY(box.minY);
-        let y2 = toScreenY(box.maxY);
-        if (y1 > y2) {
-          const temp = y1;
-          y1 = y2;
-          y2 = temp;
-        }
-        const width = x2 - x1;
-        const height = y2 - y1;
-        
-        const x = x1;
-        const y = y1;
-        // Draw square and crosshair lines
-        return (
-          <G key={`${color}-${x}-${y}`}>
-            <Rect x={x} y={y} width={width} height={height} stroke={color} strokeWidth="2" fill="none" />
-            <Line x1={x} y1={y + height/2} x2={x + width} y2={y + height/2} stroke={color} strokeWidth="1" />
-            <Line x1={x + width/2} y1={y} x2={x + width/2} y2={y + height} stroke={color} strokeWidth="1" />
-          </G>
-        );
-      };
-
-      const renderKeyPoint = (index: number, color: string) => {
-        const lm = landmarks[index];
-        if (!lm) return null;
-        return (
-          <Circle 
-            key={`point-${index}`}
-            cx={toScreenX(lm.x)} 
-            cy={toScreenY(lm.y)} 
-            r="4" 
-            fill={color} 
-          />
-        );
-      };
-
-      return (
-        <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
-          {/* Draw bounding boxes with lines */}
-          {renderBox(leftEyeBox, '#4ade80')}
-          {renderBox(rightEyeBox, '#4ade80')}
-          {renderBox(mouthBox, '#60a5fa')}
-
-          {/* Draw 6 key landmarks */}
-          {renderKeyPoint(KEY_LANDMARKS.leftEye, '#f87171')}
-          {renderKeyPoint(KEY_LANDMARKS.rightEye, '#f87171')}
-          {renderKeyPoint(KEY_LANDMARKS.noseTip, '#fbbf24')}
-          {renderKeyPoint(KEY_LANDMARKS.mouthCenter, '#fbbf24')}
-          {renderKeyPoint(KEY_LANDMARKS.leftTragion, '#c084fc')}
-          {renderKeyPoint(KEY_LANDMARKS.rightTragion, '#c084fc')}
-        </Svg>
-      );
-    } catch (error: any) {
-      console.error('Error rendering landmarks:', error);
-      return (
-        <View style={{ position: 'absolute', top: 50, left: 20, right: 20, backgroundColor: 'rgba(255,0,0,0.8)', padding: 10, borderRadius: 5, zIndex: 100 }}>
-          <Text style={{ color: 'white' }}>Render Error: {error?.message || String(error)}</Text>
-        </View>
-      );
-    }
-  };
 
   const finishStep = (step: EnrollmentStep) => {
     const data = stepDataRef.current;
@@ -426,7 +422,6 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
     }, duration);
   };
 
-  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
@@ -460,7 +455,7 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
         resizeMode="cover"
       />
       
-      {renderLandmarks()}
+      <LandmarksOverlay landmarksUpdateRef={landmarksUpdateRef} />
 
       <View style={styles.overlay}>
         <View style={[

@@ -1,0 +1,28 @@
+diff --git a/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/facelandmarkdetection/FaceLandmarkDetectionFrameProcessorPlugin.kt b/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/facelandmarkdetection/FaceLandmarkDetectionFrameProcessorPlugin.kt
+index 6a35efd..64222da 100644
+--- a/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/facelandmarkdetection/FaceLandmarkDetectionFrameProcessorPlugin.kt
++++ b/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/facelandmarkdetection/FaceLandmarkDetectionFrameProcessorPlugin.kt
+@@ -16,7 +16,8 @@ class FaceLandmarkDetectionFrameProcessorPlugin() : FrameProcessorPlugin() {
+   }
+ 
+   override fun callback(frame: Frame, params: MutableMap<String, Any>?): Any? {
+-    val detectorHandle: Double = params!!["detectorHandle"] as Double
++    if (params == null || params["detectorHandle"] == null) return false
++    val detectorHandle: Double = params["detectorHandle"] as Double
+     val detector = FaceLandmarkDetectorMap.detectorMap[detectorHandle.toInt()] ?: return false
+ 
+     //    val mpImage = MediaImageBuilder(frame.image).build()
+diff --git a/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/objectdetection/ObjectDetectionFrameProcessorPlugin.kt b/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/objectdetection/ObjectDetectionFrameProcessorPlugin.kt
+index ca356e2..5c8d2b9 100644
+--- a/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/objectdetection/ObjectDetectionFrameProcessorPlugin.kt
++++ b/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/objectdetection/ObjectDetectionFrameProcessorPlugin.kt
+@@ -16,7 +16,8 @@ class ObjectDetectionFrameProcessorPlugin() : FrameProcessorPlugin() {
+   }
+ 
+   override fun callback(frame: Frame, params: MutableMap<String, Any>?): Any? {
+-    val detectorHandle: Double = params!!["detectorHandle"] as Double
++    if (params == null || params["detectorHandle"] == null) return false
++    val detectorHandle: Double = params["detectorHandle"] as Double
+     val detector = ObjectDetectorMap.detectorMap[detectorHandle.toInt()] ?: return false
+ 
+     //    val mpImage = MediaImageBuilder(frame.image).build()
