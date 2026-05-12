@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Dimensions } from 'react-native';
 import { Camera, useCameraDevice } from 'react-native-vision-camera';
 import { 
-  faceLandmarkDetectionOnImage, 
   useFaceLandmarkDetection,
   MediapipeCamera,
   RunningMode,
@@ -12,6 +11,76 @@ import Svg, { Circle, Rect, Line, G } from 'react-native-svg';
 import { colors } from '../theme/colors';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+export enum EnrollmentStep {
+  SETUP = 0,
+  EYES_OPEN_BASELINE = 1,
+  BLINKS = 2,
+  EYES_CLOSED = 3,
+  MOUTH_NEUTRAL = 4,
+  YAWN = 5,
+  COMPLETED = 6
+}
+
+const STEP_INSTRUCTIONS = {
+  [EnrollmentStep.SETUP]: {
+    title: "Face Detection Setup",
+    instructions: [
+      "Place the camera so your face is front-facing, reasonably well-lit, and not too close.",
+      "Ensure the green and blue boxes appear on your eyes and mouth."
+    ],
+    buttonText: "Start Enrollment"
+  },
+  [EnrollmentStep.EYES_OPEN_BASELINE]: {
+    title: "Step 1: Eyes Open",
+    instructions: [
+      "Look straight into the camera.",
+      "Keep your eyes open and relaxed.",
+      "Do not blink while recording."
+    ],
+    buttonText: "Start Recording (3s)"
+  },
+  [EnrollmentStep.BLINKS]: {
+    title: "Step 2: Blinks",
+    instructions: [
+      "Blink naturally when you see the circle.",
+      "Blink 3 times during the recording."
+    ],
+    buttonText: "Start Recording (5s)"
+  },
+  [EnrollmentStep.EYES_CLOSED]: {
+    title: "Step 3: Eyes Closed",
+    instructions: [
+      "Close both eyes and keep them closed.",
+      "Keep them closed for the entire 3 seconds."
+    ],
+    buttonText: "Start Recording (3s)"
+  },
+  [EnrollmentStep.MOUTH_NEUTRAL]: {
+    title: "Step 4: Mouth Neutral",
+    instructions: [
+      "Keep your mouth gently closed and relaxed.",
+      "Do not talk or chew."
+    ],
+    buttonText: "Start Recording (3s)"
+  },
+  [EnrollmentStep.YAWN]: {
+    title: "Step 5: Yawn",
+    instructions: [
+      "Please yawn once.",
+      "Open your mouth wide and hold for a moment."
+    ],
+    buttonText: "Start Recording (5s)"
+  },
+  [EnrollmentStep.COMPLETED]: {
+    title: "Enrollment Complete",
+    instructions: [
+      "Your facial baseline has been successfully recorded.",
+      "You can now use the drowsiness monitor."
+    ],
+    buttonText: "Finish"
+  }
+};
 
 // Key landmark indices
 const KEY_LANDMARKS = {
@@ -61,17 +130,35 @@ const computeMAR = (landmarks: any[], indices: number[]) => {
   return (v1 + v2) / (2.0 * h);
 };
 
-export const FaceEnrollmentScreen = ({ _navigation }: any) => {
+export const FaceEnrollmentScreen = ({ navigation }: any) => {
   const device = useCameraDevice('front');
   const camera = useRef<Camera>(null);
   const [hasPermission, setHasPermission] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [isFaceInFrame, setIsFaceInFrame] = useState(false);
   const [landmarks, setLandmarks] = useState<any[]>([]);
   const [cameraViewSize, setCameraViewSize] = useState({ width: SCREEN_WIDTH, height: SCREEN_HEIGHT });
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
 
   const [isMirrored, setIsMirrored] = useState(false);
+
+  // Enrollment State
+  const [currentStep, setCurrentStep] = useState<EnrollmentStep>(EnrollmentStep.SETUP);
+  const [isRecording, setIsRecording] = useState(false);
+  const [stepProgress, setStepProgress] = useState(0);
+  const [enrollmentData, setEnrollmentData] = useState({
+    baselineEAR: 0,
+    blinkMinEAR: 0,
+    closedEAR: 0,
+    baselineMAR: 0,
+    yawnMAR: 0,
+  });
+
+  // Refs for data collection during stream
+  const currentStepRef = useRef<EnrollmentStep>(EnrollmentStep.SETUP);
+  const isRecordingRef = useRef<boolean>(false);
+  const stepDataRef = useRef<number[]>([]);
+  const stepTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -84,13 +171,35 @@ export const FaceEnrollmentScreen = ({ _navigation }: any) => {
     (result: FaceLandmarkDetectionResultBundle, viewSize: any, mirrored: boolean) => {
       if (result && result.results && result.results.length > 0 && result.results[0].faceLandmarks.length > 0) {
         setIsFaceInFrame(true);
-        setLandmarks(result.results[0].faceLandmarks[0]);
+        const currentLandmarks = result.results[0].faceLandmarks[0];
+        setLandmarks(currentLandmarks);
         setIsMirrored(mirrored);
         if (viewSize && viewSize.width && viewSize.height) {
           setCameraViewSize(viewSize);
         }
         if (result.inputImageWidth && result.inputImageHeight) {
           setFrameSize({ width: result.inputImageWidth, height: result.inputImageHeight });
+        }
+
+        // Collect data if recording
+        if (isRecordingRef.current && currentStepRef.current !== EnrollmentStep.SETUP && currentStepRef.current !== EnrollmentStep.COMPLETED) {
+          const leftEAR = computeEAR(currentLandmarks, [33, 160, 158, 133, 153, 144]);
+          const rightEAR = computeEAR(currentLandmarks, [362, 385, 387, 263, 373, 380]);
+          const avgEAR = (leftEAR + rightEAR) / 2.0;
+          const mar = computeMAR(currentLandmarks, [78, 82, 312, 308, 317, 87]);
+
+          if (
+            currentStepRef.current === EnrollmentStep.EYES_OPEN_BASELINE ||
+            currentStepRef.current === EnrollmentStep.BLINKS ||
+            currentStepRef.current === EnrollmentStep.EYES_CLOSED
+          ) {
+            stepDataRef.current.push(avgEAR);
+          } else if (
+            currentStepRef.current === EnrollmentStep.MOUTH_NEUTRAL ||
+            currentStepRef.current === EnrollmentStep.YAWN
+          ) {
+            stepDataRef.current.push(mar);
+          }
         }
       } else {
         setIsFaceInFrame(false);
@@ -223,45 +332,97 @@ export const FaceEnrollmentScreen = ({ _navigation }: any) => {
     }
   };
 
-  const captureAndProcess = async () => {
-    if (!camera.current || isProcessing) return;
-
-    setIsProcessing(true);
-    try {
-      const photo = await camera.current.takePhoto({
-        flash: 'off',
-        enableShutterSound: false,
-      });
-
-      // photo.path is something like /data/user/0/.../cache/VisionCamera-xxx.jpg
-      const result = await faceLandmarkDetectionOnImage(photo.path, 'face_landmarker.task');
-
-      if (result && result.results && result.results.length > 0 && result.results[0].faceLandmarks.length > 0) {
-        const faceLandmarks = result.results[0].faceLandmarks[0];
-
-        // Compute EAR
-        const leftEAR = computeEAR(faceLandmarks, [33, 160, 158, 133, 153, 144]);
-        const rightEAR = computeEAR(faceLandmarks, [362, 385, 387, 263, 373, 380]);
-        const averageEAR = (leftEAR + rightEAR) / 2.0;
-
-        // Compute MAR
-        const mar = computeMAR(faceLandmarks, [78, 82, 312, 308, 317, 87]);
-
-        Alert.alert(
-          'Success', 
-          `Face detected!\nEAR: ${averageEAR.toFixed(3)}\nMAR: ${mar.toFixed(3)}`
-        );
-        // Here you would typically save the face embeddings or landmarks
-      } else {
-        Alert.alert('Error', 'No face detected. Please try again.');
-      }
-    } catch (error: any) {
-      console.error('Face enrollment error:', error);
-      Alert.alert('Error', error?.message ? `An error occurred: ${error.message}` : 'An error occurred during face enrollment.');
-    } finally {
-      setIsProcessing(false);
+  const finishStep = (step: EnrollmentStep) => {
+    const data = stepDataRef.current;
+    setIsRecording(false);
+    isRecordingRef.current = false;
+    
+    if (data.length === 0) {
+      Alert.alert("Error", "No face data collected. Please ensure your face is in the frame and try again.");
+      return;
     }
+
+    const nextStep = step + 1;
+
+    setEnrollmentData(prev => {
+      const newData = { ...prev };
+      if (step === EnrollmentStep.EYES_OPEN_BASELINE) {
+        newData.baselineEAR = data.reduce((a, b) => a + b, 0) / data.length;
+      } else if (step === EnrollmentStep.BLINKS) {
+        newData.blinkMinEAR = Math.min(...data);
+      } else if (step === EnrollmentStep.EYES_CLOSED) {
+        const sorted = [...data].sort((a, b) => a - b);
+        const lowest = sorted.slice(0, Math.min(5, sorted.length));
+        newData.closedEAR = lowest.reduce((a, b) => a + b, 0) / lowest.length;
+      } else if (step === EnrollmentStep.MOUTH_NEUTRAL) {
+        newData.baselineMAR = data.reduce((a, b) => a + b, 0) / data.length;
+      } else if (step === EnrollmentStep.YAWN) {
+        const sorted = [...data].sort((a, b) => b - a);
+        const highest = sorted.slice(0, Math.min(5, sorted.length));
+        newData.yawnMAR = highest.reduce((a, b) => a + b, 0) / highest.length;
+      }
+      
+      if (nextStep === EnrollmentStep.COMPLETED) {
+        console.log("Final Enrollment Data:", newData);
+      }
+      
+      return newData;
+    });
+
+    setCurrentStep(nextStep);
+    currentStepRef.current = nextStep;
+    setStepProgress(0);
   };
+
+  const startRecording = () => {
+    if (!isFaceInFrame) {
+      Alert.alert("Face Not Detected", "Please make sure your face is in the frame before starting.");
+      return;
+    }
+
+    if (currentStep === EnrollmentStep.SETUP) {
+      setCurrentStep(EnrollmentStep.EYES_OPEN_BASELINE);
+      currentStepRef.current = EnrollmentStep.EYES_OPEN_BASELINE;
+      return;
+    }
+
+    if (currentStep === EnrollmentStep.COMPLETED) {
+      navigation.goBack();
+      return;
+    }
+
+    stepDataRef.current = [];
+    setIsRecording(true);
+    isRecordingRef.current = true;
+    setStepProgress(0);
+
+    let duration = 3000;
+    if (currentStep === EnrollmentStep.BLINKS || currentStep === EnrollmentStep.YAWN) {
+      duration = 5000;
+    }
+
+    const startTime = Date.now();
+    
+    if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+    progressIntervalRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      setStepProgress(Math.min(1, elapsed / duration));
+    }, 100);
+
+    if (stepTimerRef.current) clearTimeout(stepTimerRef.current);
+    stepTimerRef.current = setTimeout(() => {
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      finishStep(currentStepRef.current);
+    }, duration);
+  };
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+      if (stepTimerRef.current) clearTimeout(stepTimerRef.current);
+    };
+  }, []);
 
   if (!hasPermission) {
     return (
@@ -301,21 +462,28 @@ export const FaceEnrollmentScreen = ({ _navigation }: any) => {
           <View style={[styles.corner, styles.bottomLeft, isFaceInFrame ? styles.cornerDetected : null]} />
           <View style={[styles.corner, styles.bottomRight, isFaceInFrame ? styles.cornerDetected : null]} />
         </View>
-        <Text style={[
-          styles.instructionText,
-          isFaceInFrame ? styles.instructionTextDetected : null
-        ]}>
-          {isFaceInFrame ? 'Face Detected! Ready to capture.' : 'Position your face within the frame'}
-        </Text>
+
+        <View style={styles.instructionContainer}>
+          <Text style={styles.stepTitle}>{STEP_INSTRUCTIONS[currentStep].title}</Text>
+          {STEP_INSTRUCTIONS[currentStep].instructions.map((inst, index) => (
+            <Text key={index} style={styles.instructionText}>• {inst}</Text>
+          ))}
+          
+          {isRecording && (
+            <View style={styles.progressBarContainer}>
+              <View style={[styles.progressBar, { width: `${stepProgress * 100}%` }]} />
+            </View>
+          )}
+        </View>
       </View>
 
       <TouchableOpacity 
-        style={[styles.captureButton, isProcessing && styles.captureButtonDisabled]}
-        onPress={captureAndProcess}
-        disabled={isProcessing}
+        style={[styles.captureButton, isRecording && styles.captureButtonDisabled]}
+        onPress={startRecording}
+        disabled={isRecording}
       >
         <Text style={styles.captureButtonText}>
-          {isProcessing ? 'Processing...' : 'Enroll Face'}
+          {isRecording ? 'Recording...' : STEP_INSTRUCTIONS[currentStep].buttonText}
         </Text>
       </TouchableOpacity>
     </View>
@@ -352,9 +520,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: 'rgba(0, 0, 0, 0.1)',
     position: 'relative',
+    marginBottom: 20,
   },
   faceGuideDetected: {
-    borderColor: 'rgba(74, 222, 128, 0.4)', // Lighter green color for success
+    borderColor: 'rgba(74, 222, 128, 0.4)',
     backgroundColor: 'rgba(74, 222, 128, 0.15)',
   },
   faceGuideNotDetected: {
@@ -397,20 +566,38 @@ const styles = StyleSheet.create({
     borderRightWidth: 5,
     borderBottomRightRadius: 20,
   },
-  instructionText: {
-    color: colors.white,
-    fontSize: 18,
+  instructionContainer: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 20,
+    borderRadius: 15,
+    width: '85%',
+    alignItems: 'center',
+  },
+  stepTitle: {
+    color: colors.primary,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginTop: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 10,
+    marginBottom: 10,
     textAlign: 'center',
   },
-  instructionTextDetected: {
-    backgroundColor: 'rgba(74, 222, 128, 0.8)',
-    color: '#000',
+  instructionText: {
+    color: colors.white,
+    fontSize: 16,
+    marginBottom: 5,
+    textAlign: 'left',
+    width: '100%',
+  },
+  progressBarContainer: {
+    width: '100%',
+    height: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 5,
+    marginTop: 15,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#4ade80',
   },
   captureButton: {
     position: 'absolute',
