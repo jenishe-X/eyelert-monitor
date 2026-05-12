@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
 import { colors } from '../theme/colors';
+import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useESP32Stream } from '../hooks/useESP32Stream';
 import { useDrowsinessDetection } from '../hooks/useDrowsinessDetection';
 
@@ -8,6 +10,25 @@ export const DashboardScreen = ({ navigation }: any) => {
   const [esp32Url, setEsp32Url] = useState('ws://192.168.4.1/stream');
   const { frame, isConnected } = useESP32Stream(esp32Url);
   const { processFrame, ear, mar, perclos, yawns, isDrowsy, drowsinessState } = useDrowsinessDetection();
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const loadIp = async () => {
+        try {
+          const settingsStr = await AsyncStorage.getItem('app_settings');
+          if (settingsStr) {
+            const settings = JSON.parse(settingsStr);
+            if (settings.esp32Ip) {
+              setEsp32Url(`ws://${settings.esp32Ip}/stream`);
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load IP', e);
+        }
+      };
+      loadIp();
+    }, [])
+  );
 
   useEffect(() => {
     if (frame) {
