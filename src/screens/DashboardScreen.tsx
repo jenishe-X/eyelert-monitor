@@ -7,7 +7,7 @@ import { useDrowsinessDetection } from '../hooks/useDrowsinessDetection';
 export const DashboardScreen = ({ navigation }: any) => {
   const [esp32Url, setEsp32Url] = useState('ws://192.168.4.1/stream');
   const { frame, isConnected } = useESP32Stream(esp32Url);
-  const { processFrame, ear, mar, perclos, isDrowsy } = useDrowsinessDetection();
+  const { processFrame, ear, mar, perclos, isDrowsy, drowsinessState } = useDrowsinessDetection();
 
   useEffect(() => {
     if (frame) {
@@ -40,6 +40,7 @@ export const DashboardScreen = ({ navigation }: any) => {
       </View>
 
       <View style={styles.statsContainer}>
+        <Text style={styles.statText}>State: {drowsinessState.replace(/_/g, ' ')}</Text>
         <Text style={styles.statText}>EAR: {ear}</Text>
         <Text style={styles.statText}>MAR: {mar}</Text>
         <Text style={styles.statText}>PERCLOS: {perclos}</Text>
@@ -51,6 +52,13 @@ export const DashboardScreen = ({ navigation }: any) => {
           onPress={() => navigation.navigate('FaceEnrollment')}
         >
           <Text style={styles.actionButtonText}>Enroll Face</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => navigation.navigate('Testing')}
+        >
+          <Text style={styles.actionButtonText}>Test Alg</Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
@@ -110,15 +118,17 @@ const styles = StyleSheet.create({
   buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    flexWrap: 'wrap',
     width: '100%',
     marginTop: 'auto',
+    gap: 10,
   },
   actionButton: {
     backgroundColor: colors.primary,
-    paddingHorizontal: 20,
+    paddingHorizontal: 15,
     paddingVertical: 15,
     borderRadius: 25,
-    minWidth: 140,
+    minWidth: 100,
     alignItems: 'center',
   },
   actionButtonText: {
