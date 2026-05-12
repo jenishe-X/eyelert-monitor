@@ -269,6 +269,7 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
   const stepDataRef = useRef<number[]>([]);
   const stepTimerRef = useRef<NodeJS.Timeout | null>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastOverlayUpdateRef = useRef<number>(0);
 
   useEffect(() => {
     (async () => {
@@ -309,12 +310,16 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
           }
         }
 
-        // Send data directly to the isolated overlay component (no throttling, real-time)
+        // Send data directly to the isolated overlay component (with throttling for performance)
         if (landmarksUpdateRef.current) {
-          const frameSize = result.inputImageWidth && result.inputImageHeight 
-            ? { width: result.inputImageWidth, height: result.inputImageHeight } 
-            : null;
-          landmarksUpdateRef.current(currentLandmarks, viewSize, frameSize);
+          const now = Date.now();
+          if (now - lastOverlayUpdateRef.current > 50) { // Limit to ~20 FPS to prevent JS thread lag
+            const frameSize = result.inputImageWidth && result.inputImageHeight 
+              ? { width: result.inputImageWidth, height: result.inputImageHeight } 
+              : null;
+            landmarksUpdateRef.current(currentLandmarks, viewSize, frameSize);
+            lastOverlayUpdateRef.current = now;
+          }
         }
       } else {
         if (isFaceInFrameRef.current) {
