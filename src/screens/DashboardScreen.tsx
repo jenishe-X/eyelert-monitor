@@ -7,7 +7,7 @@ import { useDrowsinessDetection } from '../hooks/useDrowsinessDetection';
 export const DashboardScreen = ({ navigation }: any) => {
   const [esp32Url, setEsp32Url] = useState('ws://192.168.4.1/stream');
   const { frame, isConnected } = useESP32Stream(esp32Url);
-  const { processFrame, ear, mar, perclos, isDrowsy, drowsinessState } = useDrowsinessDetection();
+  const { processFrame, ear, mar, perclos, yawns, isDrowsy, drowsinessState } = useDrowsinessDetection();
 
   useEffect(() => {
     if (frame) {
@@ -44,6 +44,7 @@ export const DashboardScreen = ({ navigation }: any) => {
         <Text style={styles.statText}>EAR: {ear}</Text>
         <Text style={styles.statText}>MAR: {mar}</Text>
         <Text style={styles.statText}>PERCLOS: {perclos}</Text>
+        <Text style={styles.statText}>Yawns (3m): {yawns}</Text>
       </View>
 
       <View style={styles.buttonContainer}>

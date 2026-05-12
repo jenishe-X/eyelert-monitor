@@ -39,12 +39,12 @@ export class DrowsinessAlgorithm {
     this.enrollmentData = data;
   }
 
-  public processFrame(ear: number, mar: number, timestamp: number = Date.now()): { state: DrowsinessState, perclos: number } {
+  public processFrame(ear: number, mar: number, timestamp: number = Date.now()): { state: DrowsinessState, perclos: number, yawns: number } {
     let state = DrowsinessState.AWAKE;
     let currentPerclos = 0;
 
     if (!this.enrollmentData) {
-      return { state, perclos: currentPerclos }; // Cannot process without enrollment data
+      return { state, perclos: currentPerclos, yawns: this.yawnsInCurrentCycle }; // Cannot process without enrollment data
     }
 
     const { blinkMinEAR, closedEAR, yawnMAR } = this.enrollmentData;
@@ -126,6 +126,11 @@ export class DrowsinessAlgorithm {
       }
     }
 
+    // Immediate trigger: if yawning 5 or more times in the current 3-minute cycle
+    if (this.yawnsInCurrentCycle >= 5) {
+      state = DrowsinessState.DROWSY;
+    }
+
     // --- 4. PERCLOS integration (Smarter algorithm fallback) ---
     // Computes percentage of eye closure over the last MAX_FRAMES
     this.frameHistory.push(isClosed);
@@ -150,6 +155,6 @@ export class DrowsinessAlgorithm {
       }
     }
 
-    return { state, perclos: currentPerclos };
+    return { state, perclos: currentPerclos, yawns: this.yawnsInCurrentCycle };
   }
 }

@@ -187,6 +187,18 @@ export const TestingScreen = ({ navigation }: any) => {
   const [currentMar, setCurrentMar] = useState(0);
   const [drowsinessState, setDrowsinessState] = useState<DrowsinessState>(DrowsinessState.AWAKE);
   const [perclos, setPerclos] = useState(0);
+  const [yawns, setYawns] = useState(0);
+  const [hasAlertedYawn, setHasAlertedYawn] = useState(false);
+
+  useEffect(() => {
+    if (yawns >= 5 && !hasAlertedYawn) {
+      Alert.alert("Drowsiness Alert", "You are diagnosed as drowsy");
+      setHasAlertedYawn(true);
+    } else if (yawns === 0 && hasAlertedYawn) {
+      // Reset the alert flag when the 3-minute cycle resets the yawn counter to 0
+      setHasAlertedYawn(false);
+    }
+  }, [yawns, hasAlertedYawn]);
 
   const landmarksUpdateRef = useRef<any>(null);
   const lastOverlayUpdateRef = useRef<number>(0);
@@ -235,9 +247,10 @@ export const TestingScreen = ({ navigation }: any) => {
           setCurrentMar(mar);
           
           if (enrollmentData) {
-            const { state, perclos: currentPerclos } = algorithmRef.current.processFrame(avgEAR, mar, now);
+            const { state, perclos: currentPerclos, yawns: currentYawns } = algorithmRef.current.processFrame(avgEAR, mar, now);
             setDrowsinessState(state);
             setPerclos(currentPerclos);
+            setYawns(currentYawns);
           }
           
           lastProcessUpdateRef.current = now;
@@ -335,6 +348,11 @@ export const TestingScreen = ({ navigation }: any) => {
         <View style={styles.statRow}>
           <Text style={styles.statLabel}>PERCLOS:</Text>
           <Text style={styles.statValue}>{(perclos * 100).toFixed(1)}%</Text>
+        </View>
+
+        <View style={styles.statRow}>
+          <Text style={styles.statLabel}>Yawns (3m):</Text>
+          <Text style={styles.statValue}>{yawns}</Text>
         </View>
 
         {enrollmentData && (

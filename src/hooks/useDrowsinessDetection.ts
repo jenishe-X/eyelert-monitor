@@ -8,6 +8,7 @@ export const useDrowsinessDetection = () => {
   const [ear, setEar] = useState<number>(0);
   const [mar, setMar] = useState<number>(0);
   const [perclos, setPerclos] = useState<number>(0);
+  const [yawns, setYawns] = useState<number>(0);
   const [isDrowsy, setIsDrowsy] = useState<boolean>(false);
   const [drowsinessState, setDrowsinessState] = useState<DrowsinessState>(DrowsinessState.AWAKE);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -80,9 +81,10 @@ export const useDrowsinessDetection = () => {
 
         // --- ALGORITHM INTEGRATION ---
         const timestamp = Date.now();
-        const { state, perclos: currentPerclos } = algorithmRef.current.processFrame(avgEAR, currentMAR, timestamp);
+        const { state, perclos: currentPerclos, yawns } = algorithmRef.current.processFrame(avgEAR, currentMAR, timestamp);
         
         setPerclos(Number(currentPerclos.toFixed(2)));
+        setYawns(yawns);
         setDrowsinessState(state);
         
         // Map DrowsinessState to the boolean isDrowsy for backward compatibility with UI
@@ -116,6 +118,7 @@ export const useDrowsinessDetection = () => {
     ear,
     mar,
     perclos,
+    yawns,
     isDrowsy,
     drowsinessState
   };
