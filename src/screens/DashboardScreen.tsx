@@ -7,7 +7,7 @@ import { useESP32Stream } from '../hooks/useESP32Stream';
 import { useDrowsinessDetection } from '../hooks/useDrowsinessDetection';
 
 export const DashboardScreen = ({ navigation }: any) => {
-  const [esp32Url, setEsp32Url] = useState('ws://192.168.4.1/stream');
+  const [esp32Url, setEsp32Url] = useState('http://192.168.4.1');
   const { frame, isConnected } = useESP32Stream(esp32Url);
   const { processFrame, ear, mar, perclos, yawns, isDrowsy, drowsinessState } = useDrowsinessDetection();
 
@@ -19,7 +19,7 @@ export const DashboardScreen = ({ navigation }: any) => {
           if (settingsStr) {
             const settings = JSON.parse(settingsStr);
             if (settings.esp32Ip) {
-              setEsp32Url(`ws://${settings.esp32Ip}/stream`);
+              setEsp32Url(`http://${settings.esp32Ip}`);
             }
           }
         } catch (e) {

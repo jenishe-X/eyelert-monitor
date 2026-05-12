@@ -3,58 +3,59 @@ import { useState, useEffect, useRef } from 'react';
 export const useESP32Stream = (url: string) => {
   const [frame, setFrame] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
+  const isRunning = useRef(false);
 
   useEffect(() => {
     if (!url) return;
 
-    const connect = () => {
-      wsRef.current = new WebSocket(url);
+    // Extract IP from url (handle ws://, http://, and paths)
+    const cleanIp = url.replace('ws://', '').replace('http://', '').split('/')[0];
+    const captureUrl = `http://${cleanIp}/capture`;
 
-      wsRef.current.onopen = () => {
-        console.log('Connected to ESP32 stream');
-        setIsConnected(true);
-      };
+    isRunning.current = true;
 
-      wsRef.current.onmessage = (event) => {
-        // Assuming the ESP32 sends frames as base64 strings or Blobs.
-        // If it sends binary data, we might need to convert it to base64 for React Native Image component
-        // For this example, we assume it sends base64 strings or we handle Blob conversion.
-        if (typeof event.data === 'string') {
-          // If it's already a base64 string
-          setFrame(event.data);
-        } else {
-          // If it's a blob/arraybuffer, we need to read it as base64
+    const fetchFrame = async () => {
+      if (!isRunning.current) return;
+
+      try {
+        const response = await fetch(captureUrl, {
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
+
+        if (response.ok) {
+          setIsConnected(true);
+          const blob = await response.blob();
           const reader = new FileReader();
           reader.onload = () => {
             if (typeof reader.result === 'string') {
-              // reader.result contains the base64 data URL
               setFrame(reader.result.split(',')[1] || reader.result);
             }
+            if (isRunning.current) {
+              // Fetch next frame with a small delay to avoid overwhelming the ESP32
+              setTimeout(fetchFrame, 50);
+            }
           };
-          reader.readAsDataURL(event.data);
+          reader.onerror = () => {
+            if (isRunning.current) setTimeout(fetchFrame, 1000);
+          };
+          reader.readAsDataURL(blob);
+        } else {
+          setIsConnected(false);
+          if (isRunning.current) setTimeout(fetchFrame, 1000);
         }
-      };
-
-      wsRef.current.onclose = () => {
-        console.log('Disconnected from ESP32 stream');
+      } catch (error) {
         setIsConnected(false);
-        // Attempt to reconnect after 3 seconds
-        setTimeout(connect, 3000);
-      };
-
-      wsRef.current.onerror = (error) => {
-        console.warn('WebSocket error:', error);
-        wsRef.current?.close();
-      };
+        if (isRunning.current) setTimeout(fetchFrame, 1000);
+      }
     };
 
-    connect();
+    fetchFrame();
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      isRunning.current = false;
     };
   }, [url]);
 

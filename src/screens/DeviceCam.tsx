@@ -109,7 +109,7 @@ const LandmarksOverlay = ({ landmarks, viewSize }: { landmarks: any[], viewSize:
 };
 
 export const DeviceCamScreen = ({ navigation }: any) => {
-  const [esp32Url, setEsp32Url] = useState('ws://192.168.4.1/stream');
+  const [esp32Url, setEsp32Url] = useState('http://192.168.4.1');
   const [enrollmentData, setEnrollmentData] = useState<EnrollmentData | null>(null);
   const [viewSize, setViewSize] = useState({ width: SCREEN_WIDTH, height: (SCREEN_WIDTH * 3) / 4 });
   const [hasAlertedYawn, setHasAlertedYawn] = useState(false);
@@ -122,7 +122,7 @@ export const DeviceCamScreen = ({ navigation }: any) => {
           if (settingsStr) {
             const settings = JSON.parse(settingsStr);
             if (settings.esp32Ip) {
-              setEsp32Url(`ws://${settings.esp32Ip}/stream`);
+              setEsp32Url(`http://${settings.esp32Ip}`);
             }
           }
           
