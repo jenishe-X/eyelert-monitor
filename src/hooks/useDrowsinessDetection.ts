@@ -11,7 +11,7 @@ export const useDrowsinessDetection = () => {
   const [yawns, setYawns] = useState<number>(0);
   const [isDrowsy, setIsDrowsy] = useState<boolean>(false);
   const [drowsinessState, setDrowsinessState] = useState<DrowsinessState>(DrowsinessState.AWAKE);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const isProcessing = useRef<boolean>(false);
   const [landmarks, setLandmarks] = useState<any[]>([]);
   
   const lastSaveTime = useRef<number>(0);
@@ -46,8 +46,8 @@ export const useDrowsinessDetection = () => {
   };
 
   const processFrame = useCallback(async (filePath: string) => {
-    if (isProcessing) return;
-    setIsProcessing(true);
+    if (isProcessing.current) return;
+    isProcessing.current = true;
 
     try {
       // Process the image directly from the file path
@@ -86,7 +86,7 @@ export const useDrowsinessDetection = () => {
         setLandmarks(landmarks);
         
         // Map DrowsinessState to the boolean isDrowsy for backward compatibility with UI
-        // We trigger modal for ALARM or DROWSY. A_LITTLE_DROWSY could also trigger it depending on requirements.
+        // We trigger modal for ALARM or DROWSY.
         // The user says "ALARM" for closed 2s, so we definitely alert for ALARM.
         if (state === DrowsinessState.ALARM || state === DrowsinessState.DROWSY) {
           setIsDrowsy(true);
@@ -107,9 +107,9 @@ export const useDrowsinessDetection = () => {
     } catch (error) {
       console.error('Error processing frame:', error);
     } finally {
-      setIsProcessing(false);
+      isProcessing.current = false;
     }
-  }, [isProcessing]);
+  }, []);
 
   return {
     processFrame,

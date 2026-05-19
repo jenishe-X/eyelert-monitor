@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import HomeScreen from './src/components/Homescreen';
 import SplashScreen from './src/components/SplashScreen';
-import Eyelert from './src/Eyelert';
 
-const SPLASH_DURATION_MS = 2000;
+const SPLASH_DURATION_MS = 2500;
 
 function App(): React.JSX.Element {
   const [isSplashVisible, setIsSplashVisible] = useState(true);
@@ -19,7 +19,7 @@ function App(): React.JSX.Element {
     return <SplashScreen />;
   }
 
-  return <Eyelert />;
+  return <HomeScreen />;
 }
 
 export default App;

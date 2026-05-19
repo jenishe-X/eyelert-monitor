@@ -8,7 +8,6 @@ export interface EnrollmentData {
 
 export enum DrowsinessState {
   AWAKE = 'AWAKE',
-  A_LITTLE_DROWSY = 'A_LITTLE_DROWSY',
   DROWSY = 'DROWSY',
   ALARM = 'ALARM'
 }
@@ -19,12 +18,6 @@ export class DrowsinessAlgorithm {
   // 1. Eyes Closed (Micro-sleep) State
   private eyesClosedStartTime: number | null = null;
   
-  // 2. Blink Rate State
-  private blinksInCurrentMinute = 0;
-  private blinkMinuteStartTime = Date.now();
-  private recentBlinkRates: number[] = []; // Store past 5 minutes blink counts
-  private isBlinking = false;
-
   // 3. Yawn State
   private yawnsInCurrentCycle = 0;
   private yawnCycleStartTime = Date.now();
@@ -47,7 +40,7 @@ export class DrowsinessAlgorithm {
       return { state, perclos: currentPerclos, yawns: this.yawnsInCurrentCycle }; // Cannot process without enrollment data
     }
 
-    const { blinkMinEAR, closedEAR, yawnMAR } = this.enrollmentData;
+    const { closedEAR, yawnMAR } = this.enrollmentData;
 
     // --- 1. Eyes Closed (Micro-sleep) -> ALARM ---
     // If EAR is close to or below the closed EAR (add 10% buffer to be safe, e.g. closedEAR * 1.1)
@@ -67,34 +60,6 @@ export class DrowsinessAlgorithm {
       this.eyesClosedStartTime = null;
     }
 
-    // --- 2. Blink Rate -> A LITTLE DROWSY ---
-    // Blink detection: EAR drops below blinkMinEAR (with buffer) but isn't a prolonged closure
-    const isCurrentlyBlinking = ear <= Math.max(blinkMinEAR * 1.1, 0.2) && !isClosed;
-    
-    if (isCurrentlyBlinking && !this.isBlinking) {
-      this.isBlinking = true;
-    } else if (!isCurrentlyBlinking && this.isBlinking) {
-      this.isBlinking = false;
-      this.blinksInCurrentMinute++;
-    }
-
-    // Check minute window for blinks (60000 ms)
-    if (timestamp - this.blinkMinuteStartTime >= 60000) {
-      this.recentBlinkRates.push(this.blinksInCurrentMinute);
-      if (this.recentBlinkRates.length > 5) {
-        this.recentBlinkRates.shift(); // Keep only last 5 minutes
-      }
-      this.blinksInCurrentMinute = 0;
-      this.blinkMinuteStartTime = timestamp;
-    }
-
-    // Logic: if the blink is <= 5 blinks in a minute, in a straight 5 minutes -> A LITTLE DROWSY
-    if (this.recentBlinkRates.length === 5) {
-      const allLowBlinkRate = this.recentBlinkRates.every(rate => rate <= 5);
-      if (allLowBlinkRate) {
-        state = DrowsinessState.A_LITTLE_DROWSY;
-      }
-    }
 
     // --- 3. Yawn Rate -> DROWSY ---
     // Yawn detection: MAR is close to or greater than yawnMAR (e.g., 90% of yawnMAR)
@@ -142,17 +107,6 @@ export class DrowsinessAlgorithm {
       const closedFramesCount = this.frameHistory.filter(c => c).length;
       currentPerclos = closedFramesCount / this.frameHistory.length;
       
-      // Only apply PERCLOS rules if we have a decent amount of frames
-      if (this.frameHistory.length >= Math.min(this.MAX_FRAMES, 50)) {
-        // PERCLOS > 15% indicates drowsiness onset
-        if (currentPerclos >= 0.15 && state === DrowsinessState.AWAKE) {
-          state = DrowsinessState.A_LITTLE_DROWSY;
-        }
-        // PERCLOS > 30% indicates severe drowsiness
-        if (currentPerclos >= 0.30) {
-          state = DrowsinessState.DROWSY;
-        }
-      }
     }
 
     return { state, perclos: currentPerclos, yawns: this.yawnsInCurrentCycle };

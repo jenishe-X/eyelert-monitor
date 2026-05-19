@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import { View, Text, StyleSheet, Dimensions, Alert, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Camera, useCameraDevice } from 'react-native-vision-camera';
@@ -228,8 +228,7 @@ export const TestingScreen = ({ navigation }: any) => {
     })();
   }, [navigation]);
 
-  const faceDetectionSolution = useFaceLandmarkDetection(
-    (result: FaceLandmarkDetectionResultBundle, viewSize: any, mirrored: boolean) => {
+  const faceDetectionCallback = useCallback((result: FaceLandmarkDetectionResultBundle, viewSize: any, mirrored: boolean) => {
       if (result && result.results && result.results.length > 0 && result.results[0].faceLandmarks.length > 0) {
         const currentLandmarks = result.results[0].faceLandmarks[0];
 
@@ -246,12 +245,11 @@ export const TestingScreen = ({ navigation }: any) => {
           setCurrentEar(avgEAR);
           setCurrentMar(mar);
           
-          if (enrollmentData) {
-            const { state, perclos: currentPerclos, yawns: currentYawns } = algorithmRef.current.processFrame(avgEAR, mar, now);
-            setDrowsinessState(state);
-            setPerclos(currentPerclos);
-            setYawns(currentYawns);
-          }
+          // algorithmRef handles null enrollmentData internally
+          const { state, perclos: currentPerclos, yawns: currentYawns } = algorithmRef.current.processFrame(avgEAR, mar, now);
+          setDrowsinessState(state);
+          setPerclos(currentPerclos);
+          setYawns(currentYawns);
           
           lastProcessUpdateRef.current = now;
         }
@@ -271,7 +269,10 @@ export const TestingScreen = ({ navigation }: any) => {
           landmarksUpdateRef.current([], null, null);
         }
       }
-    },
+    }, []);
+
+  const faceDetectionSolution = useFaceLandmarkDetection(
+    faceDetectionCallback,
     (error: any) => {
       console.log('Face detection error:', error);
     },
