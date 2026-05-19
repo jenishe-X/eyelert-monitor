@@ -6,6 +6,7 @@ import Svg, { Circle, Rect, Line, G } from 'react-native-svg';
 import { colors } from '../theme/colors';
 import { useESP32Stream } from '../hooks/useESP32Stream';
 import { useDrowsinessDetection } from '../hooks/useDrowsinessDetection';
+import { WebView } from 'react-native-webview';
 import { DrowsinessState, EnrollmentData } from './Algorithm_Drowsiness';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -144,14 +145,14 @@ export const DeviceCamScreen = ({ navigation }: any) => {
     }, [navigation])
   );
 
-  const { frame, isConnected } = useESP32Stream(esp32Url);
+  const { framePath, streamUrl, isConnected } = useESP32Stream(esp32Url);
   const { processFrame, isDrowsy, drowsinessState, ear, mar, perclos, yawns, landmarks } = useDrowsinessDetection();
 
   useEffect(() => {
-    if (frame) {
-      processFrame(frame);
+    if (framePath) {
+      processFrame(framePath);
     }
-  }, [frame, processFrame]);
+  }, [framePath, processFrame]);
 
   useEffect(() => {
     if (isDrowsy) {
@@ -190,17 +191,28 @@ export const DeviceCamScreen = ({ navigation }: any) => {
         }}
       >
         {isConnected ? (
-          frame ? (
+          streamUrl ? (
             <>
-              <Image 
-                source={{ uri: `data:image/jpeg;base64,${frame}` }} 
+              <WebView 
+                source={{ 
+                  html: `
+                    <html>
+                      <body style="margin: 0; padding: 0; background-color: black; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden;">
+                        <img src="${streamUrl}" style="width: 100%; height: 100%; object-fit: fill;" />
+                      </body>
+                    </html>
+                  `
+                }} 
                 style={styles.streamImage} 
-                resizeMode="stretch"
+                scrollEnabled={false}
+                bounces={false}
+                showsHorizontalScrollIndicator={false}
+                showsVerticalScrollIndicator={false}
               />
               <LandmarksOverlay landmarks={landmarks} viewSize={viewSize} />
             </>
           ) : (
-            <Text style={styles.text}>Waiting for frames...</Text>
+            <Text style={styles.text}>Waiting for stream...</Text>
           )
         ) : (
           <Text style={styles.text}>Connecting to ESP32...</Text>

@@ -45,17 +45,13 @@ export const useDrowsinessDetection = () => {
     return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
   };
 
-  const processFrame = useCallback(async (base64Frame: string) => {
+  const processFrame = useCallback(async (filePath: string) => {
     if (isProcessing) return;
     setIsProcessing(true);
 
     try {
-      // Save base64 to a temporary file
-      const tempFilePath = `${RNFS.CachesDirectoryPath}/temp_frame.jpg`;
-      await RNFS.writeFile(tempFilePath, base64Frame, 'base64');
-
-      // Process the image
-      const result = await faceLandmarkDetectionOnImage(tempFilePath, 'face_landmarker.task');
+      // Process the image directly from the file path
+      const result = await faceLandmarkDetectionOnImage(filePath, 'face_landmarker.task');
       
       if (result && result.results && result.results.length > 0 && result.results[0].faceLandmarks.length > 0) {
         const landmarks = result.results[0].faceLandmarks[0];

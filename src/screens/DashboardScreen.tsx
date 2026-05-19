@@ -1,72 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { colors } from '../theme/colors';
-import { useFocusEffect } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useESP32Stream } from '../hooks/useESP32Stream';
-import { useDrowsinessDetection } from '../hooks/useDrowsinessDetection';
 
 export const DashboardScreen = ({ navigation }: any) => {
-  const [esp32Url, setEsp32Url] = useState('http://192.168.4.1');
-  const { frame, isConnected } = useESP32Stream(esp32Url);
-  const { processFrame, ear, mar, perclos, yawns, isDrowsy, drowsinessState } = useDrowsinessDetection();
-
-  useFocusEffect(
-    React.useCallback(() => {
-      const loadIp = async () => {
-        try {
-          const settingsStr = await AsyncStorage.getItem('app_settings');
-          if (settingsStr) {
-            const settings = JSON.parse(settingsStr);
-            if (settings.esp32Ip) {
-              setEsp32Url(`http://${settings.esp32Ip}`);
-            }
-          }
-        } catch (e) {
-          console.error('Failed to load IP', e);
-        }
-      };
-      loadIp();
-    }, [])
-  );
-
-  useEffect(() => {
-    if (frame) {
-      processFrame(frame);
-    }
-  }, [frame, processFrame]);
-
-  useEffect(() => {
-    if (isDrowsy) {
-      navigation.navigate('AlertModal');
-    }
-  }, [isDrowsy, navigation]);
-
   return (
     <View style={styles.container}>
-      <View style={styles.streamContainer}>
-        {isConnected ? (
-          frame ? (
-            <Image 
-              source={{ uri: `data:image/jpeg;base64,${frame}` }} 
-              style={styles.streamImage} 
-              resizeMode="contain"
-            />
-          ) : (
-            <Text style={styles.statusText}>Waiting for frames...</Text>
-          )
-        ) : (
-          <Text style={styles.statusText}>Connecting to ESP32...</Text>
-        )}
-      </View>
-
-      <View style={styles.statsContainer}>
-        <Text style={styles.statText}>State: {drowsinessState.replace(/_/g, ' ')}</Text>
-        <Text style={styles.statText}>EAR: {ear}</Text>
-        <Text style={styles.statText}>MAR: {mar}</Text>
-        <Text style={styles.statText}>PERCLOS: {perclos}</Text>
-        <Text style={styles.statText}>Yawns (3m): {yawns}</Text>
-      </View>
 
       <View style={styles.buttonContainer}>
         <TouchableOpacity 
