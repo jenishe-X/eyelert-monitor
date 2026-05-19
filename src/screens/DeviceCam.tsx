@@ -6,7 +6,6 @@ import Svg, { Circle, Rect, Line, G } from 'react-native-svg';
 import { colors } from '../theme/colors';
 import { useESP32Stream } from '../hooks/useESP32Stream';
 import { useDrowsinessDetection } from '../hooks/useDrowsinessDetection';
-import { WebView } from 'react-native-webview';
 import { DrowsinessState, EnrollmentData } from './Algorithm_Drowsiness';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -145,7 +144,7 @@ export const DeviceCamScreen = ({ navigation }: any) => {
     }, [navigation])
   );
 
-  const { framePath, streamUrl, isConnected } = useESP32Stream(esp32Url);
+  const { framePath, isConnected } = useESP32Stream(esp32Url);
   const { processFrame, isDrowsy, drowsinessState, ear, mar, perclos, yawns, landmarks } = useDrowsinessDetection();
 
   useEffect(() => {
@@ -172,7 +171,7 @@ export const DeviceCamScreen = ({ navigation }: any) => {
   const getStateColor = (state: DrowsinessState) => {
     switch (state) {
       case DrowsinessState.AWAKE: return '#4ade80';
-      case DrowsinessState.A_LITTLE_DROWSY: return '#fbbf24';
+    
       case DrowsinessState.DROWSY: return '#f97316';
       case DrowsinessState.ALARM: return '#ef4444';
       default: return colors.white;
@@ -191,23 +190,12 @@ export const DeviceCamScreen = ({ navigation }: any) => {
         }}
       >
         {isConnected ? (
-          streamUrl ? (
+          framePath ? (
             <>
-              <WebView 
-                source={{ 
-                  html: `
-                    <html>
-                      <body style="margin: 0; padding: 0; background-color: black; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden;">
-                        <img src="${streamUrl}" style="width: 100%; height: 100%; object-fit: fill;" />
-                      </body>
-                    </html>
-                  `
-                }} 
+              <Image 
+                source={{ uri: `file://${framePath}?t=${Date.now()}` }} 
                 style={styles.streamImage} 
-                scrollEnabled={false}
-                bounces={false}
-                showsHorizontalScrollIndicator={false}
-                showsVerticalScrollIndicator={false}
+                resizeMode="stretch"
               />
               <LandmarksOverlay landmarks={landmarks} viewSize={viewSize} />
             </>
