@@ -144,7 +144,7 @@ export const DeviceCamScreen = ({ navigation }: any) => {
     }, [navigation])
   );
 
-  const { framePath, isConnected } = useESP32Stream(esp32Url);
+  const { framePath, streamUrl, isConnected } = useESP32Stream(esp32Url);
   const { processFrame, isDrowsy, drowsinessState, ear, mar, perclos, yawns, landmarks } = useDrowsinessDetection();
 
   useEffect(() => {
@@ -190,10 +190,10 @@ export const DeviceCamScreen = ({ navigation }: any) => {
         }}
       >
         {isConnected ? (
-          framePath ? (
+          (streamUrl || framePath) ? (
             <>
               <Image 
-                source={{ uri: `file://${framePath}?t=${Date.now()}` }} 
+                source={{ uri: streamUrl ? streamUrl : `file://${framePath}?t=${Date.now()}` }} 
                 style={styles.streamImage} 
                 resizeMode="stretch"
               />

@@ -3,6 +3,7 @@ import RNFS from 'react-native-fs';
 
 export const useESP32Stream = (url: string) => {
   const [framePath, setFramePath] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const isRunning = useRef(false);
 
@@ -12,6 +13,9 @@ export const useESP32Stream = (url: string) => {
     // Extract IP from url (handle ws://, http://, and paths)
     const cleanIp = url.replace('ws://', '').replace('http://', '').split('/')[0];
     const captureUrl = `http://${cleanIp}/capture`;
+    
+    // The standard ESP32-CAM MJPEG stream is usually on port 81
+    setStreamUrl(`http://${cleanIp}:81/stream`);
 
     isRunning.current = true;
     let frameCount = 0;
@@ -58,5 +62,5 @@ export const useESP32Stream = (url: string) => {
     };
   }, [url]);
 
-  return { framePath, isConnected };
+  return { framePath, streamUrl, isConnected };
 };

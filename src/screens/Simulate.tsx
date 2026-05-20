@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Linking, Platform, TextInput 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { colors } from '../theme/colors';
+import RNFS from 'react-native-fs';
 
 export const SimulateScreen = ({ navigation }: any) => {
   const [isEyelertWifiConnected, setIsEyelertWifiConnected] = useState(false);
@@ -43,25 +44,26 @@ export const SimulateScreen = ({ navigation }: any) => {
   const checkConnection = async () => {
     setIsChecking(true);
 
-    let isResolved = false;
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => {
-        if (!isResolved) reject(new Error('Timeout'));
-      }, 5000);
-    });
-
     try {
-      // Try an HTTP fetch first to see if the device is reachable
-      const fetchPromise = fetch(`http://${esp32Ip}`);
-      await Promise.race([fetchPromise, timeoutPromise]);
-      isResolved = true;
-      setIsEyelertWifiConnected(true);
-      setIsChecking(false);
-      return;
+      const tempFilePath = `${RNFS.CachesDirectoryPath}/ping_test.jpg`;
+      const result = await RNFS.downloadFile({
+        fromUrl: `http://${esp32Ip}/capture`,
+        toFile: tempFilePath,
+        background: false,
+        cacheable: false,
+        readTimeout: 5000,
+        connectionTimeout: 5000,
+      }).promise;
+
+      if (result.statusCode === 200) {
+        setIsEyelertWifiConnected(true);
+      } else {
+        setIsEyelertWifiConnected(false);
+      }
     } catch (e) {
-      isResolved = true;
       console.log("HTTP check failed", e);
       setIsEyelertWifiConnected(false);
+    } finally {
       setIsChecking(false);
     }
   };
