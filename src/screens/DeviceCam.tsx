@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, Image, Dimensions, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Circle, Rect, Line, G } from 'react-native-svg';
 import { colors } from '../theme/colors';
+import { MjpegStreamView } from '../components/MjpegStreamView';
 import { useESP32Stream } from '../hooks/useESP32Stream';
 import { useDrowsinessDetection } from '../hooks/useDrowsinessDetection';
 import { DrowsinessState, EnrollmentData } from './Algorithm_Drowsiness';
@@ -144,14 +145,14 @@ export const DeviceCamScreen = ({ navigation }: any) => {
     }, [navigation])
   );
 
-  const { framePath, streamUrl, isConnected } = useESP32Stream(esp32Url);
+  const { detectionPath, isConnected } = useESP32Stream(esp32Url);
   const { processFrame, isDrowsy, drowsinessState, ear, mar, perclos, yawns, landmarks } = useDrowsinessDetection();
 
   useEffect(() => {
-    if (framePath) {
-      processFrame(framePath);
+    if (detectionPath) {
+      processFrame(detectionPath);
     }
-  }, [framePath, processFrame]);
+  }, [detectionPath, processFrame]);
 
   useEffect(() => {
     if (isDrowsy) {
@@ -189,21 +190,12 @@ export const DeviceCamScreen = ({ navigation }: any) => {
           });
         }}
       >
-        {isConnected ? (
-          (streamUrl || framePath) ? (
-            <>
-              <Image 
-                source={{ uri: streamUrl ? streamUrl : `file://${framePath}?t=${Date.now()}` }} 
-                style={styles.streamImage} 
-                resizeMode="stretch"
-              />
-              <LandmarksOverlay landmarks={landmarks} viewSize={viewSize} />
-            </>
-          ) : (
-            <Text style={styles.text}>Waiting for stream...</Text>
-          )
-        ) : (
-          <Text style={styles.text}>Connecting to ESP32...</Text>
+        <MjpegStreamView esp32BaseUrl={esp32Url} style={styles.streamImage} />
+        <LandmarksOverlay landmarks={landmarks} viewSize={viewSize} />
+        {!isConnected && (
+          <View style={styles.connectingOverlay}>
+            <Text style={styles.text}>Connecting to ESP32...</Text>
+          </View>
         )}
       </View>
       
@@ -275,6 +267,12 @@ const styles = StyleSheet.create({
   streamImage: {
     width: '100%',
     height: '100%',
+  },
+  connectingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   text: {
     color: colors.white,
