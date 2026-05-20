@@ -8,6 +8,7 @@ import {
   RunningMode,
   FaceLandmarkDetectionResultBundle
 } from 'react-native-mediapipe';
+import { FACE_DETECTION_OPTIONS, OVERLAY_UPDATE_INTERVAL_MS } from '../config/faceDetection';
 import Svg, { Circle, Rect, Line, G } from 'react-native-svg';
 import { colors } from '../theme/colors';
 
@@ -314,7 +315,7 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
         // Send data directly to the isolated overlay component (with throttling for performance)
         if (landmarksUpdateRef.current) {
           const now = Date.now();
-          if (now - lastOverlayUpdateRef.current > 50) { // Limit to ~20 FPS to prevent JS thread lag
+          if (now - lastOverlayUpdateRef.current > OVERLAY_UPDATE_INTERVAL_MS) {
             const frameSize = result.inputImageWidth && result.inputImageHeight 
               ? { width: result.inputImageWidth, height: result.inputImageHeight } 
               : null;
@@ -341,7 +342,8 @@ export const FaceEnrollmentScreen = ({ navigation }: any) => {
       Alert.alert('Face Detection Error', error?.message || String(error));
     },
     RunningMode.LIVE_STREAM,
-    'face_landmarker.task'
+    'face_landmarker.task',
+    FACE_DETECTION_OPTIONS
   );
 
   const finishStep = (step: EnrollmentStep) => {

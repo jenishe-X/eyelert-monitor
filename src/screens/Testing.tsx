@@ -8,6 +8,7 @@ import {
   RunningMode,
   FaceLandmarkDetectionResultBundle
 } from 'react-native-mediapipe';
+import { FACE_DETECTION_OPTIONS, OVERLAY_UPDATE_INTERVAL_MS } from '../config/faceDetection';
 import Svg, { Circle, Rect, Line, G } from 'react-native-svg';
 import { colors } from '../theme/colors';
 import { DrowsinessAlgorithm, DrowsinessState, EnrollmentData } from './Algorithm_Drowsiness';
@@ -256,7 +257,7 @@ export const TestingScreen = ({ navigation }: any) => {
 
         // Send data directly to the isolated overlay component (with throttling for performance)
         if (landmarksUpdateRef.current) {
-          if (now - lastOverlayUpdateRef.current > 50) { // Limit to ~20 FPS
+          if (now - lastOverlayUpdateRef.current > OVERLAY_UPDATE_INTERVAL_MS) {
             const frameSize = result.inputImageWidth && result.inputImageHeight 
               ? { width: result.inputImageWidth, height: result.inputImageHeight } 
               : null;
@@ -277,7 +278,8 @@ export const TestingScreen = ({ navigation }: any) => {
       console.log('Face detection error:', error);
     },
     RunningMode.LIVE_STREAM,
-    'face_landmarker.task'
+    'face_landmarker.task',
+    FACE_DETECTION_OPTIONS
   );
 
   if (!hasPermission) {
@@ -299,7 +301,6 @@ export const TestingScreen = ({ navigation }: any) => {
   const getStateColor = (state: DrowsinessState) => {
     switch (state) {
       case DrowsinessState.AWAKE: return '#4ade80'; // Green
-      case DrowsinessState.A_LITTLE_DROWSY: return '#fbbf24'; // Yellow
       case DrowsinessState.DROWSY: return '#f97316'; // Orange
       case DrowsinessState.ALARM: return '#ef4444'; // Red
       default: return colors.white;

@@ -1,17 +1,84 @@
 diff --git a/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/facelandmarkdetection/FaceLandmarkDetectionFrameProcessorPlugin.kt b/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/facelandmarkdetection/FaceLandmarkDetectionFrameProcessorPlugin.kt
-index 6a35efd..64222da 100644
+index 6a35efd..c76d538 100644
 --- a/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/facelandmarkdetection/FaceLandmarkDetectionFrameProcessorPlugin.kt
 +++ b/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/facelandmarkdetection/FaceLandmarkDetectionFrameProcessorPlugin.kt
-@@ -16,7 +16,8 @@ class FaceLandmarkDetectionFrameProcessorPlugin() : FrameProcessorPlugin() {
+@@ -2,6 +2,7 @@ package com.reactnativemediapipe.facelandmarkdetection
+ 
+ import android.graphics.Bitmap
+ import android.graphics.Matrix
++import android.os.SystemClock
+ import androidx.camera.core.ImageProxy
+ import com.google.mediapipe.framework.image.BitmapImageBuilder
+ import com.mrousavy.camera.core.types.PixelFormat
+@@ -13,36 +14,45 @@ class FaceLandmarkDetectionFrameProcessorPlugin() : FrameProcessorPlugin() {
+ 
+   companion object {
+     private const val TAG = "FaceLandmarkDetectionFrameProcessorPlugin"
++    // Cap inference rate so MediaPipe async queue does not lag seconds behind live video.
++    private const val MIN_DETECT_INTERVAL_MS = 50L
    }
  
++  @Volatile private var lastDetectMs = 0L
++
    override fun callback(frame: Frame, params: MutableMap<String, Any>?): Any? {
 -    val detectorHandle: Double = params!!["detectorHandle"] as Double
 +    if (params == null || params["detectorHandle"] == null) return false
++    val now = SystemClock.uptimeMillis()
++    if (now - lastDetectMs < MIN_DETECT_INTERVAL_MS) return false
++    lastDetectMs = now
++
 +    val detectorHandle: Double = params["detectorHandle"] as Double
      val detector = FaceLandmarkDetectorMap.detectorMap[detectorHandle.toInt()] ?: return false
  
-     //    val mpImage = MediaImageBuilder(frame.image).build()
+-    //    val mpImage = MediaImageBuilder(frame.image).build()
+-    //    detector.detectLivestreamFrame(mpImage,frame.orientation)
+-    val bitmap = imageToBitmap(frame.imageProxy)
+-    if (bitmap != null) {
+-      val rotated = rotateBitmap(bitmap, orientationToDegrees(frame.orientation).toFloat())
+-      val mpImage = BitmapImageBuilder(rotated).build()
+-      detector.detectLiveStream(mpImage, frame.orientation)
+-    }
++    val bitmap = imageToBitmap(frame.imageProxy) ?: return false
++    val degrees = orientationToDegrees(frame.orientation).toFloat()
++    val oriented = rotateBitmap(bitmap, degrees)
++    val mpImage = BitmapImageBuilder(oriented).build()
++    detector.detectLiveStream(mpImage, frame.orientation)
+     return true
+   }
+ 
+   private var bitmapBuffer: Bitmap? = null
++
+   private fun imageToBitmap(image: ImageProxy): Bitmap? {
+-    if (bitmapBuffer == null) {
++    if (bitmapBuffer == null || bitmapBuffer!!.width != image.width || bitmapBuffer!!.height != image.height) {
+       bitmapBuffer = Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888)
+     }
+     bitmapBuffer?.let {
+       val buffer = image.planes[0].buffer
++      buffer.rewind()
+       it.copyPixelsFromBuffer(buffer)
+     }
+     return bitmapBuffer
+   }
+ 
+   private fun rotateBitmap(source: Bitmap, angle: Float): Bitmap {
++    if (angle == 0f) return source
+     val matrix = Matrix()
+     matrix.postRotate(angle)
+     return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+diff --git a/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/facelandmarkdetection/FaceLandmarkDetectorHelper.kt b/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/facelandmarkdetection/FaceLandmarkDetectorHelper.kt
+index cc7bb17..e0200bb 100644
+--- a/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/facelandmarkdetection/FaceLandmarkDetectorHelper.kt
++++ b/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/facelandmarkdetection/FaceLandmarkDetectorHelper.kt
+@@ -106,7 +106,7 @@ class FaceLandmarkDetectorHelper(
+           .setMinTrackingConfidence(minFaceTrackingConfidence)
+           .setMinFacePresenceConfidence(minFacePresenceConfidence)
+           .setNumFaces(maxNumFaces)
+-          .setOutputFaceBlendshapes(true)
++          .setOutputFaceBlendshapes(false)
+           .setRunningMode(runningMode)
+ 
+       // The ResultListener and ErrorListener only use for LIVE_STREAM mode.
 diff --git a/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/objectdetection/ObjectDetectionFrameProcessorPlugin.kt b/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/objectdetection/ObjectDetectionFrameProcessorPlugin.kt
 index ca356e2..5c8d2b9 100644
 --- a/node_modules/react-native-mediapipe/android/src/main/java/com/reactnativemediapipe/objectdetection/ObjectDetectionFrameProcessorPlugin.kt
@@ -26,3 +93,101 @@ index ca356e2..5c8d2b9 100644
      val detector = ObjectDetectorMap.detectorMap[detectorHandle.toInt()] ?: return false
  
      //    val mpImage = MediaImageBuilder(frame.image).build()
+diff --git a/node_modules/react-native-mediapipe/src/faceLandmarkDetection/index.ts b/node_modules/react-native-mediapipe/src/faceLandmarkDetection/index.ts
+index 6813fe8..52cb84c 100644
+--- a/node_modules/react-native-mediapipe/src/faceLandmarkDetection/index.ts
++++ b/node_modules/react-native-mediapipe/src/faceLandmarkDetection/index.ts
+@@ -130,6 +130,8 @@ export interface FaceLandmarkDetectionOptions {
+   minTrackingConfidence: number;
+   delegate: Delegate;
+   mirrorMode: "no-mirror" | "mirror" | "mirror-front-only";
++  /** Process every Nth camera frame in the worklet (default 2 ≈ 15 FPS at 30 FPS camera). */
++  frameSkip?: number;
+ }
+ 
+ export interface FaceLandmarkDetectionCallbacks {
+@@ -181,6 +183,9 @@ export function useFaceLandmarkDetection(
+   }>({ width: 1, height: 1 });
+ 
+   const outputOrientation = useSharedValue<Orientation>("portrait");
++  const detectorHandleShared = useSharedValue<number | undefined>(undefined);
++  const frameCounter = useSharedValue(0);
++  const frameSkip = Math.max(1, options?.frameSkip ?? 1);
+ 
+   const cameraViewLayoutChangeHandler = React.useCallback(
+     (event: LayoutChangeEvent) => {
+@@ -244,6 +249,7 @@ export function useFaceLandmarkDetection(
+           handle
+         );
+         setDetectorHandle(handle);
++        detectorHandleShared.value = handle;
+         newHandle = handle;
+       });
+     return () => {
+@@ -252,6 +258,7 @@ export function useFaceLandmarkDetection(
+         "releaseDetector",
+         newHandle
+       );
++      detectorHandleShared.value = undefined;
+       if (newHandle !== undefined) {
+         getFaceLandmarkDetectionModule().releaseDetector(newHandle);
+       }
+@@ -268,10 +275,15 @@ export function useFaceLandmarkDetection(
+   const frameProcessor = useFrameProcessor(
+     (frame) => {
+       "worklet";
+-      // console.log(frame.orientation, frame.width, frame.height);
+-      plugin?.call(frame, { detectorHandle });
++      const handle = detectorHandleShared.value;
++      if (handle === undefined) return;
++      if (frameSkip > 1) {
++        frameCounter.value = (frameCounter.value + 1) % frameSkip;
++        if (frameCounter.value !== 0) return;
++      }
++      plugin?.call(frame, { detectorHandle: handle });
+     },
+-    [detectorHandle]
++    [frameSkip]
+   );
+   return React.useMemo(
+     (): MediaPipeSolution => ({
+diff --git a/node_modules/react-native-mediapipe/src/shared/mediapipeCamera.tsx b/node_modules/react-native-mediapipe/src/shared/mediapipeCamera.tsx
+index 2570e30..b120fba 100644
+--- a/node_modules/react-native-mediapipe/src/shared/mediapipeCamera.tsx
++++ b/node_modules/react-native-mediapipe/src/shared/mediapipeCamera.tsx
+@@ -3,6 +3,7 @@ import { type ViewStyle, Text } from "react-native";
+ import {
+   Camera,
+   useCameraDevice,
++  useCameraFormat,
+   type CameraPosition,
+   type CameraProps,
+ } from "react-native-vision-camera";
+@@ -32,6 +33,12 @@ export const MediapipeCamera = forwardRef<Camera, MediapipeCameraProps>(
+     ref
+   ) => {
+     const device = useCameraDevice(activeCamera);
++    // Prefer a moderate resolution for ML; fall back to device default if unavailable.
++    const format = useCameraFormat(device, [
++      { videoResolution: { width: 1280, height: 720 } },
++      { videoResolution: { width: 640, height: 480 } },
++      { fps: 30 },
++    ]);
+ 
+     useEffect(() => {
+       if (device) {
+@@ -53,12 +60,13 @@ export const MediapipeCamera = forwardRef<Camera, MediapipeCameraProps>(
+         resizeMode={resizeMode}
+         style={style}
+         device={device}
++        {...(format != null ? { format, fps: Math.min(30, format.maxFps) } : {})}
+         pixelFormat="rgb"
+         isActive={true}
+         frameProcessor={frameProcessor}
+         onLayout={cameraViewLayoutChangeHandler}
+         onOutputOrientationChanged={cameraOrientationChangedHandler}
+-        photo={true}
++        photo={false}
+       />
+     );
+   }
