@@ -1,17 +1,29 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
+import { NativeModules } from 'react-native';
+import {
+  useFaceLandmarkDetection,
+  RunningMode,
+  FaceLandmarkDetectionResultBundle,
+} from 'react-native-mediapipe';
+import { FACE_DETECTION_OPTIONS, OVERLAY_UPDATE_INTERVAL_MS } from '../config/faceDetection';
 import Svg, { Circle, Rect, Line, G } from 'react-native-svg';
 import { colors } from '../theme/colors';
 import { MjpegStreamView } from '../components/MjpegStreamView';
 import { useESP32Stream } from '../hooks/useESP32Stream';
-import { useDrowsinessDetection } from '../hooks/useDrowsinessDetection';
-import { DrowsinessState, EnrollmentData } from './Algorithm_Drowsiness';
+import { DrowsinessAlgorithm, DrowsinessState, EnrollmentData } from './Algorithm_Drowsiness';
+import { triggerEsp32Buzzer } from '../services/esp32Alert';
+import { speakDrowsinessAlert } from '../services/drowsinessVoiceAlert';
+
+const { FaceLandmarkDetection } = NativeModules;
+
+const detectLiveStreamOnImage = (handle: number, imagePath: string): Promise<boolean> =>
+  FaceLandmarkDetection.detectLiveStreamOnImage(handle, imagePath);
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Key landmark indices
 const KEY_LANDMARKS = {
   leftEye: 468,
   rightEye: 473,
@@ -24,6 +36,40 @@ const KEY_LANDMARKS = {
 const LEFT_EYE_INDICES = [33, 133, 159, 145, 153, 144, 163, 7, 161, 246, 160, 158, 157, 173];
 const RIGHT_EYE_INDICES = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398];
 const MOUTH_INDICES = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+
+const calculateDistance = (p1: any, p2: any) => {
+  return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+};
+
+const computeEAR = (landmarks: any[], indices: number[]) => {
+  const p1 = landmarks[indices[0]];
+  const p2 = landmarks[indices[1]];
+  const p3 = landmarks[indices[2]];
+  const p4 = landmarks[indices[3]];
+  const p5 = landmarks[indices[4]];
+  const p6 = landmarks[indices[5]];
+
+  const v1 = calculateDistance(p2, p6);
+  const v2 = calculateDistance(p3, p5);
+  const h = calculateDistance(p1, p4);
+
+  return (v1 + v2) / (2.0 * h);
+};
+
+const computeMAR = (landmarks: any[], indices: number[]) => {
+  const p1 = landmarks[indices[0]];
+  const p2 = landmarks[indices[1]];
+  const p3 = landmarks[indices[2]];
+  const p4 = landmarks[indices[3]];
+  const p5 = landmarks[indices[4]];
+  const p6 = landmarks[indices[5]];
+
+  const v1 = calculateDistance(p2, p6);
+  const v2 = calculateDistance(p3, p5);
+  const h = calculateDistance(p1, p4);
+
+  return (v1 + v2) / (2.0 * h);
+};
 
 const getBoundingBox = (points: any[], indices: number[]) => {
   if (!points || points.length === 0) return null;
@@ -41,38 +87,59 @@ const getBoundingBox = (points: any[], indices: number[]) => {
   return { minX, minY, maxX, maxY };
 };
 
-const LandmarksOverlay = ({ landmarks, viewSize }: { landmarks: any[], viewSize: { width: number, height: number } }) => {
-  if (!landmarks || landmarks.length === 0) return null;
+/** ESP32 MJPEG uses FIT_XY — map normalized landmarks directly to view size. */
+const LandmarksOverlay = memo(({ landmarksUpdateRef }: { landmarksUpdateRef: React.MutableRefObject<any> }) => {
+  const [data, setData] = useState<any>(null);
+
+  useEffect(() => {
+    landmarksUpdateRef.current = (landmarks: any[], viewSize: any) => {
+      setData({ landmarks, viewSize });
+    };
+    return () => {
+      landmarksUpdateRef.current = null;
+    };
+  }, [landmarksUpdateRef]);
+
+  if (!data || !data.landmarks || data.landmarks.length === 0) return null;
 
   try {
+    const { landmarks, viewSize } = data;
     const leftEyeBox = getBoundingBox(landmarks, LEFT_EYE_INDICES);
     const rightEyeBox = getBoundingBox(landmarks, RIGHT_EYE_INDICES);
     const mouthBox = getBoundingBox(landmarks, MOUTH_INDICES);
 
-    const vw = viewSize.width;
-    const vh = viewSize.height;
+    const vw = viewSize?.width || SCREEN_WIDTH;
+    const vh = viewSize?.height || (SCREEN_WIDTH * 3) / 4;
 
-    // ESP32 stream is normally not mirrored and not flipped
     const toScreenX = (x: number) => x * vw;
     const toScreenY = (y: number) => y * vh;
 
     const renderBox = (box: any, color: string) => {
       if (!box) return null;
-      const x1 = toScreenX(box.minX);
-      const x2 = toScreenX(box.maxX);
-      const y1 = toScreenY(box.minY);
-      const y2 = toScreenY(box.maxY);
-      
-      const x = Math.min(x1, x2);
-      const y = Math.min(y1, y2);
-      const width = Math.abs(x2 - x1);
-      const height = Math.abs(y2 - y1);
-      
+      let x1 = toScreenX(box.minX);
+      let x2 = toScreenX(box.maxX);
+      if (x1 > x2) {
+        const temp = x1;
+        x1 = x2;
+        x2 = temp;
+      }
+      let y1 = toScreenY(box.minY);
+      let y2 = toScreenY(box.maxY);
+      if (y1 > y2) {
+        const temp = y1;
+        y1 = y2;
+        y2 = temp;
+      }
+      const width = x2 - x1;
+      const height = y2 - y1;
+      const x = x1;
+      const y = y1;
+
       return (
         <G key={`${color}-${x}-${y}`}>
           <Rect x={x} y={y} width={width} height={height} stroke={color} strokeWidth="2" fill="none" />
-          <Line x1={x} y1={y + height/2} x2={x + width} y2={y + height/2} stroke={color} strokeWidth="1" />
-          <Line x1={x + width/2} y1={y} x2={x + width/2} y2={y + height} stroke={color} strokeWidth="1" />
+          <Line x1={x} y1={y + height / 2} x2={x + width} y2={y + height / 2} stroke={color} strokeWidth="1" />
+          <Line x1={x + width / 2} y1={y} x2={x + width / 2} y2={y + height} stroke={color} strokeWidth="1" />
         </G>
       );
     };
@@ -81,12 +148,12 @@ const LandmarksOverlay = ({ landmarks, viewSize }: { landmarks: any[], viewSize:
       const lm = landmarks[index];
       if (!lm) return null;
       return (
-        <Circle 
+        <Circle
           key={`point-${index}`}
-          cx={toScreenX(lm.x)} 
-          cy={toScreenY(lm.y)} 
-          r="4" 
-          fill={color} 
+          cx={toScreenX(lm.x)}
+          cy={toScreenY(lm.y)}
+          r="4"
+          fill={color}
         />
       );
     };
@@ -104,16 +171,29 @@ const LandmarksOverlay = ({ landmarks, viewSize }: { landmarks: any[], viewSize:
         {renderKeyPoint(KEY_LANDMARKS.rightTragion, '#c084fc')}
       </Svg>
     );
-  } catch (error) {
+  } catch {
     return null;
   }
-};
+});
 
 export const DeviceCamScreen = ({ navigation }: any) => {
   const [esp32Url, setEsp32Url] = useState('http://192.168.4.1');
   const [enrollmentData, setEnrollmentData] = useState<EnrollmentData | null>(null);
-  const [viewSize, setViewSize] = useState({ width: SCREEN_WIDTH, height: (SCREEN_WIDTH * 3) / 4 });
   const [hasAlertedYawn, setHasAlertedYawn] = useState(false);
+  const [isDrowsy, setIsDrowsy] = useState(false);
+
+  const [ear, setEar] = useState(0);
+  const [mar, setMar] = useState(0);
+  const [perclos, setPerclos] = useState(0);
+  const [yawns, setYawns] = useState(0);
+  const [drowsinessState, setDrowsinessState] = useState<DrowsinessState>(DrowsinessState.AWAKE);
+
+  const algorithmRef = useRef(new DrowsinessAlgorithm());
+  const prevDrowsinessStateRef = useRef<DrowsinessState>(DrowsinessState.AWAKE);
+  const landmarksUpdateRef = useRef<any>(null);
+  const lastOverlayUpdateRef = useRef<number>(0);
+  const lastProcessUpdateRef = useRef<number>(0);
+  const isDetectingFrameRef = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -126,15 +206,17 @@ export const DeviceCamScreen = ({ navigation }: any) => {
               setEsp32Url(`http://${settings.esp32Ip}`);
             }
           }
-          
+
           const storedData = await AsyncStorage.getItem('enrollment_data');
           if (storedData) {
-            setEnrollmentData(JSON.parse(storedData));
+            const parsed = JSON.parse(storedData) as EnrollmentData;
+            setEnrollmentData(parsed);
+            algorithmRef.current.setEnrollmentData(parsed);
           } else {
             Alert.alert(
-              "No Enrollment Data", 
-              "Please enroll your face first before testing.",
-              [{ text: "OK", onPress: () => navigation.goBack() }]
+              'No Enrollment Data',
+              'Please enroll your face first before testing.',
+              [{ text: 'OK', onPress: () => navigation.goBack() }]
             );
           }
         } catch (e) {
@@ -146,13 +228,70 @@ export const DeviceCamScreen = ({ navigation }: any) => {
   );
 
   const { detectionPath, isConnected } = useESP32Stream(esp32Url);
-  const { processFrame, isDrowsy, drowsinessState, ear, mar, perclos, yawns, landmarks } = useDrowsinessDetection();
+
+  const faceDetectionCallback = useCallback(
+    (result: FaceLandmarkDetectionResultBundle, viewSize: any) => {
+      if (result?.results?.length > 0 && result.results[0].faceLandmarks.length > 0) {
+        const currentLandmarks = result.results[0].faceLandmarks[0];
+
+        const leftEAR = computeEAR(currentLandmarks, [33, 160, 158, 133, 153, 144]);
+        const rightEAR = computeEAR(currentLandmarks, [362, 385, 387, 263, 373, 380]);
+        const avgEAR = (leftEAR + rightEAR) / 2.0;
+        const currentMar = computeMAR(currentLandmarks, [78, 82, 312, 308, 317, 87]);
+
+        const now = Date.now();
+
+        if (now - lastProcessUpdateRef.current > 100) {
+          setEar(avgEAR);
+          setMar(currentMar);
+
+          const { state, perclos: currentPerclos, yawns: currentYawns } =
+            algorithmRef.current.processFrame(avgEAR, currentMar, now);
+          setDrowsinessState(state);
+          setPerclos(currentPerclos);
+          setYawns(currentYawns);
+          setIsDrowsy(
+            state === DrowsinessState.ALARM || state === DrowsinessState.DROWSY
+          );
+
+          lastProcessUpdateRef.current = now;
+        }
+
+        if (landmarksUpdateRef.current) {
+          if (now - lastOverlayUpdateRef.current > OVERLAY_UPDATE_INTERVAL_MS) {
+            landmarksUpdateRef.current(currentLandmarks, viewSize);
+            lastOverlayUpdateRef.current = now;
+          }
+        }
+      } else if (landmarksUpdateRef.current) {
+        landmarksUpdateRef.current([], null);
+      }
+    },
+    []
+  );
+
+  const faceDetectionSolution = useFaceLandmarkDetection(
+    faceDetectionCallback,
+    (error: any) => {
+      console.log('ESP32 face detection error:', error);
+    },
+    RunningMode.LIVE_STREAM,
+    'face_landmarker.task',
+    { ...FACE_DETECTION_OPTIONS, mirrorMode: 'no-mirror' }
+  );
 
   useEffect(() => {
-    if (detectionPath) {
-      processFrame(detectionPath);
-    }
-  }, [detectionPath, processFrame]);
+    const handle = (faceDetectionSolution as { detectorHandle?: number }).detectorHandle;
+    if (!detectionPath || handle === undefined) return;
+    if (isDetectingFrameRef.current) return;
+
+    isDetectingFrameRef.current = true;
+    detectLiveStreamOnImage(handle, detectionPath)
+      .catch((e: unknown) => console.error('ESP32 frame detection failed:', e))
+      .finally(() => {
+        isDetectingFrameRef.current = false;
+      });
+  }, [detectionPath, faceDetectionSolution]);
 
   useEffect(() => {
     if (isDrowsy) {
@@ -161,8 +300,27 @@ export const DeviceCamScreen = ({ navigation }: any) => {
   }, [isDrowsy, navigation]);
 
   useEffect(() => {
+    const prev = prevDrowsinessStateRef.current;
+    const enteredDrowsy =
+      (drowsinessState === DrowsinessState.DROWSY || drowsinessState === DrowsinessState.ALARM) &&
+      prev !== DrowsinessState.DROWSY &&
+      prev !== DrowsinessState.ALARM;
+    const enteredAlarm =
+      drowsinessState === DrowsinessState.ALARM && prev !== DrowsinessState.ALARM;
+
+    if (enteredDrowsy) {
+      speakDrowsinessAlert();
+    }
+    if (enteredAlarm && isConnected) {
+      triggerEsp32Buzzer(esp32Url);
+    }
+    prevDrowsinessStateRef.current = drowsinessState;
+  }, [drowsinessState, esp32Url, isConnected]);
+
+  useEffect(() => {
     if (yawns >= 5 && !hasAlertedYawn) {
-      Alert.alert("Drowsiness Alert", "You are diagnosed as drowsy");
+      speakDrowsinessAlert();
+      Alert.alert('Drowsiness Alert', 'You are diagnosed as drowsy');
       setHasAlertedYawn(true);
     } else if (yawns === 0 && hasAlertedYawn) {
       setHasAlertedYawn(false);
@@ -171,39 +329,34 @@ export const DeviceCamScreen = ({ navigation }: any) => {
 
   const getStateColor = (state: DrowsinessState) => {
     switch (state) {
-      case DrowsinessState.AWAKE: return '#4ade80';
-    
-      case DrowsinessState.DROWSY: return '#f97316';
-      case DrowsinessState.ALARM: return '#ef4444';
-      default: return colors.white;
+      case DrowsinessState.AWAKE:
+        return '#4ade80';
+      case DrowsinessState.DROWSY:
+        return '#f97316';
+      case DrowsinessState.ALARM:
+        return '#ef4444';
+      default:
+        return colors.white;
     }
   };
 
   return (
     <View style={styles.container}>
-      <View 
+      <View
         style={styles.streamContainer}
-        onLayout={(e) => {
-          setViewSize({
-            width: e.nativeEvent.layout.width,
-            height: e.nativeEvent.layout.height
-          });
-        }}
+        onLayout={faceDetectionSolution.cameraViewLayoutChangeHandler}
       >
         <MjpegStreamView esp32BaseUrl={esp32Url} style={styles.streamImage} />
-        <LandmarksOverlay landmarks={landmarks} viewSize={viewSize} />
+        <LandmarksOverlay landmarksUpdateRef={landmarksUpdateRef} />
         {!isConnected && (
           <View style={styles.connectingOverlay}>
             <Text style={styles.text}>Connecting to ESP32...</Text>
           </View>
         )}
       </View>
-      
+
       <View style={styles.topOverlay}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Text style={styles.backButtonText}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.title}>ESP32 Monitor</Text>
@@ -216,12 +369,12 @@ export const DeviceCamScreen = ({ navigation }: any) => {
             {drowsinessState.replace(/_/g, ' ')}
           </Text>
         </View>
-        
+
         <View style={styles.statRow}>
           <Text style={styles.statLabel}>Current EAR:</Text>
           <Text style={styles.statValue}>{ear.toFixed(3)}</Text>
         </View>
-        
+
         <View style={styles.statRow}>
           <Text style={styles.statLabel}>Current MAR:</Text>
           <Text style={styles.statValue}>{mar.toFixed(3)}</Text>
@@ -257,7 +410,7 @@ const styles = StyleSheet.create({
   },
   streamContainer: {
     width: '100%',
-    aspectRatio: 4/3,
+    aspectRatio: 4 / 3,
     backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
@@ -305,10 +458,10 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 18,
     fontWeight: 'bold',
-    marginRight: 60, // to balance the back button
+    marginRight: 60,
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: {width: -1, height: 1},
-    textShadowRadius: 10
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 10,
   },
   statsOverlay: {
     position: 'absolute',
@@ -350,5 +503,5 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.7)',
     fontSize: 12,
     fontFamily: 'monospace',
-  }
+  },
 });

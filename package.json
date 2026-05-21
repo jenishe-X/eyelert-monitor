@@ -7,7 +7,7 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-    "postinstall": "patch-package",
+    "postinstall": "patch-package && node scripts/mediapipe-esp32-patch.js",
     "test": "jest"
   },
   "dependencies": {

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import RNFS from 'react-native-fs';
 
-const DETECTION_INTERVAL_MS = 300;
+/** Match MediaPipe live-stream throttle (~20 FPS) without overloading ESP32 /capture. */
+const DETECTION_INTERVAL_MS = 50;
 
 export const useESP32Stream = (url: string) => {
   const [detectionPath, setDetectionPath] = useState<string | null>(null);
